@@ -329,7 +329,7 @@ body { font-family: var(--sans); color: var(--text); -webkit-font-smoothing: ant
 
 .tab:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.05);
+  
 }
 
 .tab.active {
@@ -391,4 +391,19 @@ body:not([data-mode="settings"]) #concSettings {
   margin-top: 12px; /* Отделяем от ползунка памяти */
   padding-top: 12px;
   border-top: 1px solid var(--line);
+}
+footer {
+ 
+  font-family: var(--mono);
+  font-size: 12px; 
+  letter-spacing: 0.08em;
+  color: var(--muted); /
+}
+
+
+footer b {
+  color: var(--green); 
+  font-weight: 700;
+  font-size: 1.1em; 
+  text-shadow: 0 0 8px rgba(61, 207, 111, 0.4); 
 }
