@@ -19,13 +19,18 @@
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8"
   },
-  "build": {
+    "build": {
     "appId": "dev.farcipal.launcher",
     "productName": "Farcipal Launcher",
     "files": [
       "main.js",
       "preload.js",
       "config.js",
+      "game.js",
+      "loaders.js",
+      "modrinth.js",
+      "discord.js",
+      "network.js",
       "icon.png",
       "renderer/**/*"
     ],
