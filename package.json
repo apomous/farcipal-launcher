@@ -12,7 +12,8 @@
   "dependencies": {
     "@xmcl/core": "^2.12.0",
     "@xmcl/installer": "^5.4.0",
-    "msmc": "^5.0.5"
+    "msmc": "^5.0.5",
+    "undici": "^6.21.0"
   },
   "devDependencies": {
     "electron": "^33.2.0",

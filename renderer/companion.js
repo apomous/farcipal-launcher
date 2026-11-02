@@ -295,6 +295,7 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
   // ---------- режимы ----------
   function pickMode(now) {
     if (mode === "slam" || mode === "recoil" || mode === "error") return;
+    if (document.body.dataset.mode === "store") { mode = "store"; return; }
     if (wantLoading) mode = "loading";
     else if (running) mode = "sleep";
     else if (hovering && hoverable && btnRect) mode = "hover";
@@ -452,7 +453,11 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
             const T = home(); spring(T.x + bob.x * 0.5, T.y + bob.y * 0.6, 7, 0.9, dt);
             lid = 0.09; px = 1.35; py = 1.35; spin = 0.15; vis = 0.65;
             gazeAt = { x: eye.x, y: eye.y + 80 };
-        }
+        } else if (mode === "store") {
+            const T = home(); // Берет координаты угла из store.js
+            spring(T.x + bob.x * 0.3, T.y + bob.y * 0.3, 15, 0.8, dt);
+      // gazeAt по умолчанию смотрит на мышку, так что зрачок будет следить за курсором
+    }
     }
 
     pinT = pin ? Math.min(1, pinT + dt * 2.2) : 0;
@@ -885,7 +890,7 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
     // чего хотим: зацепиться за кнопку или «исследовать» элемент под курсором
     const anch = hoverAnchors();
     const hoverMode = (mode === "hover" || mode === "slam") && !!anch;
-    const capActive = !hoverMode && mode === "follow" && !!capRect && sc > 0.9;
+    const capActive = !hoverMode && (mode === "follow" || mode === "store") && !!capRect && sc > 0.9;
     const want = hoverMode ? "play" : capActive ? "cap" : null;
     if (want !== lastWant) { if (want) capAge = 0; else leaveAge = 0; lastWant = want; }
     if (want) { capAge += dt; leaveAge = 0; } else { leaveAge += dt; capAge = 0; }
