@@ -12,6 +12,7 @@
   const loader = $("loader"), loaderVer = $("loaderVer"), loaderVerWrap = $("loaderVerWrap");
   const companionToggle = $("companionToggle");
   const discordToggle = $("discordToggle");
+  const conc = $("conc"), concOut = $("concOut");
   C.init({ play, progress, shake: $("shake"), targets: ".panel, .card, .play, .tab, .brand, .scard"});
 
   // ---------- часы ----------
@@ -67,6 +68,8 @@
   const settings = await L.settings.get();
   ram.value = settings.memory; ramOut.textContent = `${settings.memory} ГБ`;
   snap.checked = settings.snapshots; join.checked = settings.joinServer;
+  conc.value = settings.concurrency || 4;
+  concOut.textContent = conc.value;
     // Восстанавливаем состояние FARCOP
   const isCompanionEnabled = settings.companion !== false; // По умолчанию true
   companionToggle.checked = isCompanionEnabled;
@@ -78,10 +81,13 @@
   const save = () => L.settings.set({
     memory: Number(ram.value), version: ver.value, snapshots: snap.checked,
     joinServer: join.checked, demoName: q.value.trim(), loaderType: loader.value, loaderVersion: loaderVer.value,
-    companion: companionToggle.checked, discord: discordToggle.checked
+    companion: companionToggle.checked, discord: discordToggle.checked,
+    concurrency: Number(conc.value)
   });
   ram.addEventListener("input", () => { ramOut.textContent = `${ram.value} ГБ`; });
   ram.addEventListener("change", save);
+  conc.addEventListener("input", () => { concOut.textContent = conc.value; });
+  conc.addEventListener("change", save);
   join.addEventListener("change", save);
   ver.addEventListener("change", () => { save(); fillLoaderVersions(); });
   loader.addEventListener("change", () => { save(); refreshLoader(); });
@@ -238,7 +244,8 @@ await refreshLoader();
     await C.slam();                       // глаз врезается в кнопку, дальше только загрузка
     const res = await L.play({
       version: ver.value, memory: Number(ram.value), joinServer: join.checked,
-      mode: account ? "microsoft" : "demo", name: q.value,loaderType: loader.value, loaderVersion: loaderVer.value
+      mode: account ? "microsoft" : "demo", name: q.value,loaderType: loader.value, loaderVersion: loaderVer.value,
+      concurrency: Number(conc.value)
     });
     starting = false;
     if (res.cancelled) { setUi("idle"); C.phase("idle"); progress.className = "progress"; stopTimer(); return; }

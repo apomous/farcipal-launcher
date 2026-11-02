@@ -70,7 +70,7 @@ const versionJson = (gameDir, id) => path.join(gameDir, "versions", id, id + ".j
  * возвращает { proc, versionId }
  */
 async function installAndLaunch(opts, hooks, deps) {
-  const { gameDir, mcVersion, loaderType = "vanilla", loaderVersion, javaPath = "java", memoryGB = 4, auth, server } = opts;
+  const { gameDir, mcVersion, loaderType = "vanilla", loaderVersion, javaPath = "java", memoryGB = 4, auth, server, concurrency } = opts;
   const { core, inst } = deps && deps.core ? deps : await loadXmcl();
   const getJava = (deps && deps.javaMajor) || javaMajor;
   if (!mcVersion) throw new Error("Выбери версию игры");
@@ -80,7 +80,7 @@ async function installAndLaunch(opts, hooks, deps) {
     const ensureDeps = async (id, label) => {
     const resolved = await core.Version.parse(gameDir, id);
     await runTask(
-      inst.installDependenciesTask && inst.installDependenciesTask(resolved, { agent: farcipalAgent, concurrency: 4 }), 
+      inst.installDependenciesTask && inst.installDependenciesTask(resolved, { agent: farcipalAgent, concurrency: concurrency }), 
       () => inst.installDependencies(resolved, { agent: farcipalAgent }), 
       label, 
       hooks
@@ -97,7 +97,7 @@ async function installAndLaunch(opts, hooks, deps) {
     const meta = list.versions.find((v) => v.id === mcVersion);
     if (!meta) throw new Error(`Версия ${mcVersion} не найдена в манифесте Mojang`);
         await runTask(
-      inst.installTask && inst.installTask(meta, gameDir, { agent: farcipalAgent, concurrency: 4 }), 
+      inst.installTask && inst.installTask(meta, gameDir, { agent: farcipalAgent, concurrency: concurrency }), 
       () => inst.install(meta, gameDir, { agent: farcipalAgent }), 
       "Minecraft " + mcVersion, 
       hooks

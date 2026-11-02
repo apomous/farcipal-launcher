@@ -356,3 +356,11 @@ body:not([data-mode="settings"]) #farcopSettings {
 body:not([data-mode="settings"]) #ramSettings {
   display: none !important;
 }
+body:not([data-mode="settings"]) #concSettings {
+  display: none !important;
+}
+#concSettings {
+  margin-top: 12px; /* Отделяем от ползунка памяти */
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}

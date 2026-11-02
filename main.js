@@ -9,6 +9,7 @@ const modrinth = require("./modrinth");
 const discord = require("./discord");
 const { installAndLaunch } = require("./game");
 
+
 const MANIFEST = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
 const gameDir = path.join(app.getPath("appData"), config.gameDirName);
 const settingsFile = path.join(app.getPath("userData"), "settings.json");
@@ -174,7 +175,7 @@ modrinth.register(ipcMain, { gameDir, shell, send });
 
 ipcMain.handle("game:play", async (_e, opts) => {
   if (game) return { ok: false, error: "Игра уже запущена" };
-  const { version, loaderType = "vanilla", loaderVersion = "", memory, mode, name, joinServer } = opts;
+  const { version, loaderType = "vanilla", loaderVersion = "", memory, mode, name, joinServer, concurrency = 4 } = opts;
 
   let auth;
   try { auth = buildAuth(mode, name); } catch (e) { return { ok: false, error: e.message }; }
@@ -187,7 +188,8 @@ ipcMain.handle("game:play", async (_e, opts) => {
     const { proc, versionId } = await installAndLaunch(
       {
         gameDir, mcVersion: version, loaderType, loaderVersion, memoryGB: memory, auth,
-        server: joinServer && config.server.host ? { host: config.server.host, port: config.server.port } : null
+        server: joinServer && config.server.host ? { host: config.server.host, port: config.server.port } : null,
+        concurrency
       },
       { log, progress: (p) => send("game:progress", p), state: (s) => send("game:state", { state: s }), cancel: game.cancel }
     );

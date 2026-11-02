@@ -84,6 +84,18 @@
           <span class="ram-max">16</span>
         </div>
       </label>
+            <label class="field" id="concSettings">
+        <div class="ram-header">
+          <span>Потоков загрузки</span>
+          <output id="concOut">4</output>
+        </div>
+        <span class="ram-hint">(Больше = быстрее, меньше = стабильнее)</span>
+        <div class="ram-range">
+          <span class="ram-min">1</span>
+          <input id="conc" type="range" min="1" max="16" step="1" value="4">
+          <span class="ram-max">16</span>
+        </div>
+      </label>
       <label class="check" id="joinWrap"><input id="join" type="checkbox"> Заходить на сервер сразу</label>
             <!-- Блок FARCOP, скрытый по умолчанию -->
       <div id="farcopSettings" class="farcop-block">
