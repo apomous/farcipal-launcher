@@ -55,3 +55,4 @@ Java ставится вручную (например, Temurin с adoptium.net)
 - Автоскачивание Java.
 - Загрузка новостей с сайта (сейчас список в `config.js`).
 - NeoForge и Quilt, управление модами.
+Farcipal Launcher is not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.
