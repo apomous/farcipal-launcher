@@ -70,22 +70,42 @@ const versionJson = (gameDir, id) => path.join(gameDir, "versions", id, id + ".j
  * возвращает { proc, versionId }
  */
 async function installAndLaunch(opts, hooks, deps) {
-  const { gameDir, mcVersion, loaderType = "vanilla", loaderVersion, javaPath = "java", memoryGB = 4, auth, server, concurrency } = opts;
+  const { gameDir, mcVersion, loaderType = "vanilla", loaderVersion, javaPath = "java", memoryGB = 4, auth, server, concurrency = 4} = opts;
   const { core, inst } = deps && deps.core ? deps : await loadXmcl();
   const getJava = (deps && deps.javaMajor) || javaMajor;
   if (!mcVersion) throw new Error("Выбери версию игры");
   if ((loaderType === "forge" || loaderType === "fabric") && !loaderVersion) throw new Error(`Выбери версию ${loaderType === "forge" ? "Forge" : "Fabric"}`);
   fs.mkdirSync(gameDir, { recursive: true });
 
-    const ensureDeps = async (id, label) => {
+      const ensureDeps = async (id, label) => {
     const resolved = await core.Version.parse(gameDir, id);
-    await runTask(
-      inst.installDependenciesTask && inst.installDependenciesTask(resolved, { agent: farcipalAgent, concurrency: concurrency }), 
-      () => inst.installDependencies(resolved, { agent: farcipalAgent }), 
-      label, 
-      hooks
-    );
+    
+    let attempt = 1;
+    const maxRetries = 10; // 10 попыток — с головой хватит
+    
+    while (attempt <= maxRetries) {
+      try {
+        await runTask(
+          inst.installDependenciesTask && inst.installDependenciesTask(resolved, { agent: farcipalAgent, concurrency: concurrency }), 
+          () => inst.installDependencies(resolved, { agent: farcipalAgent, concurrency: concurrency }), 
+          label, 
+          hooks
+        );
+        break; // Если ошибок нет — выходим из цикла
+      } catch (e) {
+        // Если пользователь сам нажал "Отмена" — не делаем ретраи
+        if (hooks.cancel && hooks.cancel.cancelled) throw e; 
+        
+        // Если это была последняя попытка — кидаем ошибку наверх
+        if (attempt === maxRetries) throw e; 
+        
+        hooks.log(`[Сеть] Сбой скачивания (попытка ${attempt}/${maxRetries}). Ждем 3 секунды и продолжаем...`);
+        await new Promise(r => setTimeout(r, 3000)); // Ждем 3 секунды перед следующей попыткой
+        attempt++;
+      }
+    }
     return resolved;
+  
   };
 
   // 1) базовая ванильная версия: качаем, только если её ещё нет
@@ -98,7 +118,7 @@ async function installAndLaunch(opts, hooks, deps) {
     if (!meta) throw new Error(`Версия ${mcVersion} не найдена в манифесте Mojang`);
         await runTask(
       inst.installTask && inst.installTask(meta, gameDir, { agent: farcipalAgent, concurrency: concurrency }), 
-      () => inst.install(meta, gameDir, { agent: farcipalAgent }), 
+      () => inst.install(meta, gameDir, { agent: farcipalAgent, concurrency : concurrency}), 
       "Minecraft " + mcVersion, 
       hooks
     );
@@ -122,7 +142,7 @@ async function installAndLaunch(opts, hooks, deps) {
     else {
       hooks.log(`ставлю Forge ${loaderVersion}: установщик запускает Java, это может занять несколько минут`);
       hooks.progress({ type: "Forge", task: 0, total: 1 });
-      const r = await inst.installForge({ version: loaderVersion, mcversion: mcVersion }, gameDir, { java: javaPath, agent: farcipalAgent});
+      const r = await inst.installForge({ version: loaderVersion, mcversion: mcVersion }, gameDir, { java: javaPath, agent: farcipalAgent, concurrency: concurrency});
       checkCancel(hooks);
       versionId = typeof r === "string" && r ? r : expected;
       if (!exists(versionJson(gameDir, versionId))) {                  // подстраховка: ищем установленную папку Forge
