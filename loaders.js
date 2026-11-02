@@ -87,4 +87,11 @@ async function forgeVersions(mc) {
   return { items, recommended: (items.find((i) => i.id === rec) || items[0] || {}).id || null };
 }
 
-module.exports = { configure, fabricGames, fabricLoaders, installFabricProfile, forgeGames, forgeVersions };
+// папка профиля: у ванили общая (как раньше, чтобы не потерять миры), у загрузчиков своя на пару «версия + загрузчик»:
+// моды под 1.20.1 нельзя смешивать с модами под 1.21, игра падает
+function instanceDir(root, mc, loaderType) {
+  if (!loaderType || loaderType === "vanilla") return root;
+  return path.join(root, "instances", `${mc}-${loaderType}`);
+}
+
+module.exports = { instanceDir, configure, fabricGames, fabricLoaders, installFabricProfile, forgeGames, forgeVersions };

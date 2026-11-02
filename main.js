@@ -5,6 +5,8 @@ const crypto = require("crypto");
 const { Auth } = require("msmc");
 const config = require("./config");
 const loaders = require("./loaders");
+const modrinth = require("./modrinth");
+const discord = require("./discord");
 const { installAndLaunch } = require("./game");
 
 const MANIFEST = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
@@ -14,7 +16,7 @@ const authFile = path.join(app.getPath("userData"), "auth.json");
 const launchLog = path.join(gameDir, "launcher-last.log");   // полный журнал последнего запуска: его можно прислать при проблемах
 
 let win = null;
-let game = null; // { proc } пока игра запускается или работает
+let game = null; // { proc, cancel } пока игра устанавливается, запускается или работает
 
 // ---------- файлы настроек ----------
 function readJson(file, fallback) {
@@ -24,7 +26,7 @@ function writeJson(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
-const defaults = { memory: 4, version: "", snapshots: false, joinServer: false, demoName: "", loaderType: "vanilla", loaderVersion: "" };
+const defaults = { memory: 4, version: "", snapshots: false, joinServer: false, demoName: "", loaderType: "vanilla", loaderVersion: "", discord: true };
 const getSettings = () => ({ ...defaults, ...readJson(settingsFile, {}) });
 
 // ---------- окно ----------
@@ -53,7 +55,12 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+  // статус в Discord: нужен Application ID в config.js (discordClientId), включается переключателем в настройках
+  discord.init({ clientId: config.discordClientId, enabled: getSettings().discord !== false, brand: "Farcipal" });
+});
+app.on("before-quit", () => discord.destroy());
 app.on("window-all-closed", () => app.quit());
 
 ipcMain.on("win:min", () => win && win.minimize());
@@ -70,6 +77,7 @@ ipcMain.handle("settings:get", () => getSettings());
 ipcMain.handle("settings:set", (_e, s) => {
   const next = { ...getSettings(), ...s };
   writeJson(settingsFile, next);
+  discord.setEnabled(next.discord !== false);
   return next;
 });
 
@@ -155,11 +163,14 @@ function buildAuth(mode, name) {
   // демо без аккаунта: флаг --demo, ограничение накладывает сам клиент Mojang
   const nick = (name || "").trim();
   if (!/^[A-Za-z0-9_]{3,16}$/.test(nick)) throw new Error("Ник: 3–16 символов, латиница, цифры и _");
-  return { profile: { id: offlineUUID(nick), name: nick }, accessToken: "0", userType: "legacy", demo: false };
+  return { profile: { id: offlineUUID(nick), name: nick }, accessToken: "0", userType: "legacy", demo: true };
 }
 
 // ---------- запуск ----------
 const send = (ch, data) => win && !win.isDestroyed() && win.webContents.send(ch, data);
+
+// магазин модов и ресурспаков: IPC store:* живёт в modrinth.js
+modrinth.register(ipcMain, { gameDir, shell, send });
 
 ipcMain.handle("game:play", async (_e, opts) => {
   if (game) return { ok: false, error: "Игра уже запущена" };
@@ -171,14 +182,14 @@ ipcMain.handle("game:play", async (_e, opts) => {
   const log = (m) => { send("game:log", { text: String(m) }); try { fs.appendFileSync(launchLog, m + "\n"); } catch {} };
   try { fs.mkdirSync(gameDir, { recursive: true }); fs.writeFileSync(launchLog, `# ${new Date().toISOString()} ${version} ${loaderType} ${loaderVersion}\n`); } catch {}
 
-  game = { proc: null };                                // занимаем слот: двойной запуск невозможен
+  game = { proc: null, cancel: { cancelled: false, task: null } };   // занимаем слот: двойной запуск невозможен; cancel — для кнопки «Остановить»
   try {
     const { proc, versionId } = await installAndLaunch(
       {
         gameDir, mcVersion: version, loaderType, loaderVersion, memoryGB: memory, auth,
         server: joinServer && config.server.host ? { host: config.server.host, port: config.server.port } : null
       },
-      { log, progress: (p) => send("game:progress", p), state: (s) => send("game:state", { state: s }) }
+      { log, progress: (p) => send("game:progress", p), state: (s) => send("game:state", { state: s }), cancel: game.cancel }
     );
     game.proc = proc;
 
@@ -190,17 +201,23 @@ ipcMain.handle("game:play", async (_e, opts) => {
     };
     proc.stdout && proc.stdout.on("data", onLine);
     proc.stderr && proc.stderr.on("data", onLine);
-    proc.on("error", (e) => { game = null; log("не удалось запустить Java: " + e.message); send("game:state", { state: "error", code: -1 }); });
+    proc.on("error", (e) => { game = null; discord.clear(); log("не удалось запустить Java: " + e.message); send("game:state", { state: "error", code: -1 }); });
     proc.on("close", (code) => {
+      discord.clear();
+      const byUser = !!(game && game.cancel.cancelled);   // закрыли кнопкой «Остановить»: это не сбой
       game = null;
       const c = (code === null ? -1 : code) | 0;      // 4294967289 -> -7: показываем знаковое значение
-      send("game:state", { state: c === 0 ? "stopped" : "error", code: c });
+      send("game:state", { state: c === 0 || byUser ? "stopped" : "error", code: c });
     });
     send("game:state", { state: "running" });
     log(`версия ${versionId} запущена`);
+    // «играет в Minecraft 1.21.4 • Farcipal»; на сервере показываем название из config, не адрес
+    discord.playing({ mc: version, loaderType, loaderVersion, server: joinServer && config.server.host ? (config.server.name || null) : null });
     return { ok: true };
   } catch (e) {
+    const cancelled = !!((e && e.cancelled) || (game && game.cancel.cancelled));
     game = null;
+    if (cancelled) { log("запуск отменён"); return { ok: false, cancelled: true }; }
     const msg = (e && e.message) || String(e);
     try { fs.appendFileSync(launchLog, "ОШИБКА: " + (e && e.stack || msg) + "\n"); } catch {}
     return { ok: false, error: msg };
@@ -208,6 +225,9 @@ ipcMain.handle("game:play", async (_e, opts) => {
 });
 
 ipcMain.handle("game:stop", () => {
-  if (game && game.proc) game.proc.kill();
+  if (!game) return true;
+  game.cancel.cancelled = true;                         // установка остановится на ближайшей границе этапа
+  try { if (game.cancel.task && game.cancel.task.cancel) game.cancel.task.cancel(); } catch {}   // и скачивание прервётся сразу
+  if (game.proc) game.proc.kill();
   return true;
 });

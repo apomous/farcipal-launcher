@@ -4,7 +4,6 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const loaders = require("./loaders");
-const { farcipalAgent } = require('./network');
 
 // @xmcl бывают и CJS, и ESM: динамический import работает в обоих случаях
 async function loadXmcl() {
@@ -30,20 +29,33 @@ function fallbackJava(mc) {
   return 8;
 }
 
+// отмена: main.js выставляет hooks.cancel.cancelled = true и вызывает task.cancel(); здесь проверяем на границах этапов
+function checkCancel(hooks) {
+  if (hooks.cancel && hooks.cancel.cancelled) { const e = new Error("Отменено"); e.cancelled = true; throw e; }
+}
+
 // запуск задачи установщика с прогрессом (МБ); если у функции нет Task-версии — просто ждём промис
 async function runTask(task, fallback, label, hooks) {
+  checkCancel(hooks);
   if (task && typeof task.startAndWait === "function") {
     let lastSend = 0;
-    await task.startAndWait({
-      onUpdate() {
-        const now = Date.now();
-        if (now - lastSend < 150) return;
-        lastSend = now;
-        hooks.progress({ type: label, task: Math.floor((task.progress || 0) / 1048576), total: Math.max(1, Math.ceil((task.total || 0) / 1048576)) });
-      },
-      onFailed(t, e) { hooks.log(`сбой: ${(t && t.path) || label}: ${(e && e.message) || e}`); }
-    });
+    if (hooks.cancel) hooks.cancel.task = task;        // чтобы stop мог вызвать task.cancel()
+    try {
+      await task.startAndWait({
+        onUpdate() {
+          const now = Date.now();
+          if (now - lastSend < 150) return;
+          lastSend = now;
+          hooks.progress({ type: label, task: Math.floor((task.progress || 0) / 1048576), total: Math.max(1, Math.ceil((task.total || 0) / 1048576)) });
+        },
+        onFailed(t, e) { hooks.log(`сбой: ${(t && t.path) || label}: ${(e && e.message) || e}`); }
+      });
+    } catch (e) {
+      if (hooks.cancel && hooks.cancel.cancelled) checkCancel(hooks);   // задачу отменили: это не ошибка установки
+      throw e;
+    } finally { if (hooks.cancel) hooks.cancel.task = null; }
   } else await fallback();
+  checkCancel(hooks);
 }
 
 const exists = (p) => { try { return fs.existsSync(p); } catch { return false; } };
@@ -64,14 +76,9 @@ async function installAndLaunch(opts, hooks, deps) {
   if ((loaderType === "forge" || loaderType === "fabric") && !loaderVersion) throw new Error(`Выбери версию ${loaderType === "forge" ? "Forge" : "Fabric"}`);
   fs.mkdirSync(gameDir, { recursive: true });
 
-    const ensureDeps = async (id, label) => {
+  const ensureDeps = async (id, label) => {
     const resolved = await core.Version.parse(gameDir, id);
-    await runTask(
-      inst.installDependenciesTask && inst.installDependenciesTask(resolved, { agent: farcipalAgent }), 
-      () => inst.installDependencies(resolved, { agent: farcipalAgent }), 
-      label, 
-      hooks
-    );
+    await runTask(inst.installDependenciesTask && inst.installDependenciesTask(resolved), () => inst.installDependencies(resolved), label, hooks);
     return resolved;
   };
 
@@ -80,16 +87,12 @@ async function installAndLaunch(opts, hooks, deps) {
   if (!exists(versionJson(gameDir, mcVersion))) {
     hooks.log(`скачиваю Minecraft ${mcVersion}`);
     const list = await inst.getVersionList();
+    checkCancel(hooks);
     const meta = list.versions.find((v) => v.id === mcVersion);
     if (!meta) throw new Error(`Версия ${mcVersion} не найдена в манифесте Mojang`);
-    await runTask(
-      inst.installTask && inst.installTask(meta, gameDir, { agent: farcipalAgent }), 
-      () => inst.install(meta, gameDir, { agent: farcipalAgent }), 
-      "Minecraft " + mcVersion, 
-      hooks
-    );
+    await runTask(inst.installTask && inst.installTask(meta, gameDir), () => inst.install(meta, gameDir), "Minecraft " + mcVersion, hooks);
   }
-  const base = await ensureDeps(mcVersion, "файлы " + mcVersion);      // докачает недостающее и битое, лишнего не трогает
+  const base = await ensureDeps(mcVersion, "файлы " + mcVersion);       // докачает недостающее и битое, лишнего не трогает
 
   // 2) нужная Java: берём из JSON версии, а не угадываем
   const need = (base.javaVersion && base.javaVersion.majorVersion) || fallbackJava(mcVersion), have = getJava(javaPath);
@@ -101,20 +104,17 @@ async function installAndLaunch(opts, hooks, deps) {
   if (loaderType === "fabric") {
     hooks.log(`ставлю Fabric ${loaderVersion}`);
     versionId = await loaders.installFabricProfile(gameDir, mcVersion, loaderVersion);
+    checkCancel(hooks);
   } else if (loaderType === "forge") {
     const expected = `${mcVersion}-forge-${loaderVersion}`;
     if (exists(versionJson(gameDir, expected))) versionId = expected;
     else {
       hooks.log(`ставлю Forge ${loaderVersion}: установщик запускает Java, это может занять несколько минут`);
       hooks.progress({ type: "Forge", task: 0, total: 1 });
-            const r = await inst.installForge(
-        { version: loaderVersion, mcversion: mcVersion }, 
-        gameDir, 
-        { java: javaPath, agent: farcipalAgent }
-      );
-      
+      const r = await inst.installForge({ version: loaderVersion, mcversion: mcVersion }, gameDir, { java: javaPath });
+      checkCancel(hooks);
       versionId = typeof r === "string" && r ? r : expected;
-      if (!exists(versionJson(gameDir, versionId))) {                  
+      if (!exists(versionJson(gameDir, versionId))) {                  // подстраховка: ищем установленную папку Forge
         const dir = path.join(gameDir, "versions");
         const found = fs.readdirSync(dir).find((d) => d.includes("forge") && d.includes(loaderVersion) && exists(versionJson(gameDir, d)));
         if (!found) throw new Error("Forge установился, но профиль версии не найден в " + dir);
@@ -123,19 +123,24 @@ async function installAndLaunch(opts, hooks, deps) {
     }
   }
   if (versionId !== mcVersion) await ensureDeps(versionId, "библиотеки загрузчика");
-      
 
   // 4) запуск
   hooks.log(`запускаю ${versionId}`);
+  // профиль: у ванили общая папка (миры не теряются), у Forge/Fabric своя на пару «версия + загрузчик», там лежат моды из магазина.
+  // Библиотеки, ассеты и версии общие: resourcePath = корень
+  const instance = loaders.instanceDir(gameDir, mcVersion, loaderType);
+  fs.mkdirSync(instance, { recursive: true });
   const opt = {
-    gamePath: gameDir, javaPath, version: versionId,
+    gamePath: instance, resourcePath: gameDir, javaPath, version: versionId,
     gameProfile: auth.profile, accessToken: auth.accessToken, userType: auth.userType,
     minMemory: 1024, maxMemory: Math.max(1024, Math.round(memoryGB * 1024)),
     launcherName: "Farcipal", launcherBrand: "Farcipal",
     extraMCArgs: auth.demo ? ["--demo"] : []
   };
   if (server && server.host) { opt.server = { ip: server.host, port: server.port || 25565 }; opt.quickPlayMultiplayer = `${server.host}:${server.port || 25565}`; }
+  checkCancel(hooks);
   const proc = await core.launch(opt);
+  if (hooks.cancel && hooks.cancel.cancelled) { try { proc.kill(); } catch {} checkCancel(hooks); }   // отменили в момент старта
   return { proc, versionId };
 }
 

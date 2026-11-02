@@ -10,10 +10,17 @@ contextBridge.exposeInMainWorld("launcher", {
   logout: () => ipcRenderer.invoke("auth:logout"),
   play: (opts) => ipcRenderer.invoke("game:play", opts),
   stop: () => ipcRenderer.invoke("game:stop"),
+  // магазин модов и ресурспаков (Modrinth)
+  storeSearch: (o) => ipcRenderer.invoke("store:search", o),
+  storePreview: (o) => ipcRenderer.invoke("store:preview", o),
+  storeInstalled: (o) => ipcRenderer.invoke("store:installed", o),
+  storeInstall: (o) => ipcRenderer.invoke("store:install", o),
+  storeRemove: (o) => ipcRenderer.invoke("store:remove", o),
+  storeFolder: (o) => ipcRenderer.invoke("store:folder", o),
   settings: { get: () => ipcRenderer.invoke("settings:get"), set: (s) => ipcRenderer.invoke("settings:set", s) },
   win: (action) => ipcRenderer.send("win:" + action),
   on: (channel, fn) => {
-    const allowed = ["game:log", "game:progress", "game:state"];
+    const allowed = ["game:log", "game:progress", "game:state", "store:progress"];
     if (!allowed.includes(channel)) return;
     ipcRenderer.on(channel, (_e, data) => fn(data));
   }
