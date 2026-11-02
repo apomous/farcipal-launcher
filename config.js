@@ -10,5 +10,6 @@ module.exports = {
     { title: "Лаунчер запущен", text: "Первая сборка. Выбирай версию и жми «Играть».", tag: "лаунчер" }
   ],
   // Azure-приложение для входа через Microsoft. Пусто = используется стандартный client id msmc.
-  msClientId: ""
+  msClientId: "",
+  discordClientId: "1566845844961886238"
 };

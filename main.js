@@ -163,7 +163,7 @@ function buildAuth(mode, name) {
   // демо без аккаунта: флаг --demo, ограничение накладывает сам клиент Mojang
   const nick = (name || "").trim();
   if (!/^[A-Za-z0-9_]{3,16}$/.test(nick)) throw new Error("Ник: 3–16 символов, латиница, цифры и _");
-  return { profile: { id: offlineUUID(nick), name: nick }, accessToken: "0", userType: "legacy", demo: true };
+  return { profile: { id: offlineUUID(nick), name: nick }, accessToken: "0", userType: "legacy", demo: false };
 }
 
 // ---------- запуск ----------

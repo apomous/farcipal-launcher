@@ -281,8 +281,10 @@
     if (els.play) btnRect = slamS ? btnRect : rectOf(els.play);
     if (els.progress) progRect = rectOf(els.progress);
   }
-  const home = () => ({ x: W / 2, y: btnRect ? Math.max(130, btnRect.top - 150) : H * 0.3 });
-  const hoverAnchors = () => btnRect ? [
+  let homeFn = null;
+const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, btnRect.top - 150) : H * 0.3 });
+// в публичный API рядом с setHoverable
+ const hoverAnchors = () => btnRect ? [
     { x: btnRect.left + btnRect.width * 0.16, y: btnRect.top + 2 },
     { x: btnRect.left + btnRect.width * 0.36, y: btnRect.top + 2 },
     { x: btnRect.left + btnRect.width * 0.56, y: btnRect.top + 2 },
@@ -1100,6 +1102,7 @@
     },
     slam,
     setHoverable(v) { hoverable = !!v; },
+    setHome(fn) { homeFn = fn; },
     phase(name) {
       if (name === "loading") { wantLoading = true; running = false; }
       else if (name === "running") { wantLoading = false; running = true; flash = 0.7; ring(); if (mode !== "slam" && mode !== "recoil") mode = "follow"; }

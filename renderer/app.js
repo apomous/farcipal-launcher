@@ -11,7 +11,8 @@
   const avatar = $("avatar"), pname = $("pname"), psub = $("psub"), nickWrap = $("nickWrap");
   const loader = $("loader"), loaderVer = $("loaderVer"), loaderVerWrap = $("loaderVerWrap");
   const companionToggle = $("companionToggle");
-  C.init({ play, progress, shake: $("shake"), targets: ".panel, .card, .play, .tab, .brand"});
+  const discordToggle = $("discordToggle");
+  C.init({ play, progress, shake: $("shake"), targets: ".panel, .card, .play, .tab, .brand, .scard"});
 
   // ---------- часы ----------
   const tick = () => { const d = new Date(); $("clock").textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
@@ -41,7 +42,7 @@
   const UI = {
     idle:    { dot: "idle",     pill: "готов",     status: "готов",     btn: "ЗАПУСТИТЬ" },
     loading: { dot: "scanning", pill: "загрузка",  status: "загрузка",  btn: "ОСТАНОВИТЬ" },
-    running: { dot: "found",    pill: "в игре",    status: "в игре",    btn: "В ИГРЕ" },
+  running: { dot: "found",    pill: "закрыть игру",    status: "закрыть игру",    btn: "ЗАКРЫТЬ ИГРУ" },
     error:   { dot: "error",    pill: "сбой",      status: "ошибка",    btn: "ЗАПУСТИТЬ" }
   };
   let uiState = "idle";
@@ -70,13 +71,14 @@
   const isCompanionEnabled = settings.companion !== false; // По умолчанию true
   companionToggle.checked = isCompanionEnabled;
   C.setVisible(isCompanionEnabled);
+  discordToggle.checked = settings.discord !== false;
   q.value = settings.demoName || "";
   loader.value = settings.loaderType || "vanilla";
   let wantLoaderVer = settings.loaderVersion || "";
   const save = () => L.settings.set({
     memory: Number(ram.value), version: ver.value, snapshots: snap.checked,
     joinServer: join.checked, demoName: q.value.trim(), loaderType: loader.value, loaderVersion: loaderVer.value,
-    companion: companionToggle.checked
+    companion: companionToggle.checked, discord: discordToggle.checked
   });
   ram.addEventListener("input", () => { ramOut.textContent = `${ram.value} ГБ`; });
   ram.addEventListener("change", save);
@@ -92,6 +94,7 @@
     save();
     C.setVisible(companionToggle.checked);
   });
+    discordToggle.addEventListener("change", () => L.settings.set({ discord: discordToggle.checked }));
 
   
 
@@ -271,8 +274,10 @@ await refreshLoader();
     if (now - lastProg > 700 || (p.total > 1 && p.task === p.total)) { log(txt); lastProg = now; }
   });
   L.on("game:log", ({ text, game }) => {
-    if (text && (game || /error|fail|ошиб/i.test(text))) log(text.slice(0, 160), /error|fail/i.test(text) ? "err" : "");
-  });
+    if (!text) return;
+const bad = /error|fail|exception|сбой|ошибк|не удалось|нет на диске: [1-9]/i.test(text);
+if (bad || !game) log(text.slice(0, 200), bad ? "err" : "");
+  });  
   // --- ЛОГИКА ВКЛАДОК ---
   const tabs = document.querySelectorAll(".tab");
   const tabIndicator = document.getElementById("tabIndicator");
