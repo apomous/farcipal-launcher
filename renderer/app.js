@@ -225,6 +225,7 @@ await refreshLoader();
       await L.stop(); 
       setUi("idle");
       C.phase("idle");
+      starting = false;
       return;
     } 
         if (starting) return;
@@ -237,6 +238,7 @@ await refreshLoader();
       mode: account ? "microsoft" : "demo", name: q.value,loaderType: loader.value, loaderVersion: loaderVer.value
     });
     starting = false;
+    if (res.cancelled) { setUi("idle"); C.phase("idle"); progress.className = "progress"; stopTimer(); return; }
     if (!res.ok) {
       showHint(res.error); log(res.error, "err");
       setUi("error"); C.phase("error"); progress.className = "progress"; stopTimer();
@@ -290,7 +292,7 @@ await refreshLoader();
       // Меняем режим у body (это включит нужные CSS-стили)
       const target = tab.dataset.target;
       document.body.dataset.mode = target;
-      C.phase("idle"); 
+      if (uiState === "idle" || uiState === "error") C.phase("idle");   // будим глаз, но не сбрасываем загрузку
     });
   });
 

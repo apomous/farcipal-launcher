@@ -310,7 +310,7 @@
   // ---------- рывок ----------
   function slam() {
     return new Promise((res) => {
-      if (isHidden || !btnRect || mode === "slam" || mode === "recoil") { res(); return; }
+      if (isHidden || performance.now() - born < INTRO_DURATION || !btnRect || mode === "slam" || mode === "recoil") { res(); return; }
       const r = { ...btnRect };
       const I = { x: clamp(eye.x, r.left + r.width * 0.22, r.right - r.width * 0.12), y: r.top + r.height * 0.1 };
       let dx = eye.x - I.x, dy = eye.y - I.y, d = Math.hypot(dx, dy);
