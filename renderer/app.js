@@ -261,14 +261,16 @@ await refreshLoader();
       setUi("loading"); C.phase("loading");
       progress.className = "progress on"; startTimer(); log(`запускаю ${ver.value}`);
     } else if (state === "running") {
-      setUi("running"); C.phase("running");
+      setUi("running"); C.setVisible(false);
       progress.className = "progress done"; stopTimer(); log("игра запущена", "ok");
     } else if (state === "stopped") {
       setUi("idle"); C.phase("idle"); progress.className = "progress"; stopTimer(); log("игра закрыта");
+      if (companionToggle.checked) C.setVisible(true);
     } else if (state === "error") {
       setUi("error"); C.phase("error"); progress.className = "progress"; stopTimer();
       log(`игра завершилась с кодом ${code}`, "err");
       showHint(`Игра закрылась с ошибкой (код ${code}). Подробности в журнале.`);
+      if (companionToggle.checked) C.setVisible(true);
       setTimeout(() => { if (uiState === "error") setUi("idle"); }, 2600);
     }
   });
@@ -318,5 +320,18 @@ if (bad || !game) log(text.slice(0, 200), bad ? "err" : "");
   // Кнопки управления окном
   $("wmin").addEventListener("click", () => L.win("min"));
   $("wclose").addEventListener("click", () => L.win("close"));
+  // Сон при потере фокуса
+  window.addEventListener('blur', () => {
+    // Скрываем глаз, если он включен и игра не запущена (чтобы не было конфликтов)
+    if (companionToggle.checked && uiState !== 'running') {
+      C.setVisible(false);
+    }
+  });
 
+  // Пробуждение при возврате в окно
+  window.addEventListener('focus', () => {
+    if (companionToggle.checked && uiState !== 'running') {
+      C.setVisible(true);
+    }
+  });
 })();

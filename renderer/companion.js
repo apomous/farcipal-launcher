@@ -998,11 +998,8 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
     // Масштаб: глаз вылетает из точки
     const finalSc = sc * (0.1 + 0.9 * introEase);
     
-    // Если анимация еще идет, принудительно закрываем веки в начале
-    if (now - born < INTRO_DURATION && introT > 0.6 && introT < 0.65) {
-        flash = Math.max(flash, 0.6);
-    }
-
+    
+  
     let jx = 0, jy = 0;
     if (mode === "error") { const a = Math.max(0, 1 - (now - errT0) / 1300) * 7; jx = rnd(-a, a); jy = rnd(-a, a); }
     // дыхание и пульс: тело живёт, а не стоит как наклейка
