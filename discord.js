@@ -13,7 +13,7 @@ const cfg = {
   largeImage: "farcipal",            // ключ картинки из Rich Presence → Art Assets
   statusDisplayType: 2,              // 0 = имя приложения, 1 = state, 2 = details: в списке участников «Playing <details>»
   button: { label: "Скачать лаунчер", url: "https://github.com/apomous/farsipal-launcher" },   // null = без кнопки
-  showIdle: false,                   // показывать «В лаунчере», пока игра не запущена
+  showIdle: true,                   // показывать «В лаунчере», пока игра не запущена
   retryMs: 15000,
   paths: null,                       // для тестов: свои пути к каналу
   log: () => {}
@@ -27,7 +27,7 @@ const two = (s) => (String(s).length < 2 ? String(s) + " " : String(s));      //
 // info: { mc, loaderType, loaderVersion, server, startedAt }
 function buildActivity(info) {
   const loader = LOADER[info.loaderType] || "";
-  const details = `Minecraft ${info.mc} • ${cfg.brand}`;                      // «Minecraft 1.21.4 • Farcipal»
+  const details = `Minecraft ${info.mc}`;                      // «Minecraft 1.21.4 • Farcipal»
   const state = info.server ? `На сервере ${info.server}` : loader ? `${loader}${info.loaderVersion ? " " + info.loaderVersion : ""}` : "Ванильная игра";
   const a = {
     type: 0,

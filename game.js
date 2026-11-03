@@ -5,6 +5,7 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 const loaders = require("./loaders");
 const { farcipalAgent } = require('./network');
+const { ensureAssets } = require('./assets');
 
 // @xmcl бывают и CJS, и ESM: динамический import работает в обоих случаях
 async function loadXmcl() {
@@ -86,8 +87,8 @@ async function installAndLaunch(opts, hooks, deps) {
     while (attempt <= maxRetries) {
       try {
         await runTask(
-          inst.installDependenciesTask && inst.installDependenciesTask(resolved, { agent: farcipalAgent, concurrency: concurrency }), 
-          () => inst.installDependencies(resolved, { agent: farcipalAgent, concurrency: concurrency }), 
+          inst.installLibrariesTask && inst.installLibrariesTask(resolved, { agent: farcipalAgent, concurrency: concurrency }), 
+          () => inst.installLibraries(resolved, { agent: farcipalAgent, concurrency: concurrency }), 
           label, 
           hooks
         );
@@ -123,6 +124,15 @@ async function installAndLaunch(opts, hooks, deps) {
       hooks
     );
   }
+     // Парсим версию, чтобы достать ID индекса ассетов
+  const parsedBase = await core.Version.parse(gameDir, mcVersion);
+  // Если ID нет (очень старые версии), используем 'legacy'
+  const assetIndexId = (parsedBase.assetIndex && parsedBase.assetIndex.id) ? parsedBase.assetIndex.id : 'legacy';
+  
+  hooks.log(`Проверяю и докачиваю ассеты (индекс: ${assetIndexId})...`);
+  await ensureAssets(gameDir, assetIndexId, concurrency, (p) => hooks.progress({ type: "файлы " + mcVersion, ...p })); 
+  
+  // Теперь отдаем это @xmcl, он проверит за секунду и перейдет к библиотекам
   const base = await ensureDeps(mcVersion, "файлы " + mcVersion);       // докачает недостающее и битое, лишнего не трогает
 
   // 2) нужная Java: берём из JSON версии, а не угадываем
@@ -169,6 +179,23 @@ async function installAndLaunch(opts, hooks, deps) {
     extraMCArgs: auth.demo ? ["--demo"] : []
   };
   if (server && server.host) { opt.server = { ip: server.host, port: server.port || 25565 }; opt.quickPlayMultiplayer = `${server.host}:${server.port || 25565}`; }
+  checkCancel(hooks);
+     // ПРИНУДИТЕЛЬНО ИЗВЛЕКАЕМ НАТИВНЫЕ БИБЛИОТЕКИ
+  hooks.log("Проверяю нативные библиотеки...");
+  const { LaunchPrecheck, MinecraftFolder } = await import("@xmcl/core");
+  
+  const resolvedVersion = await core.Version.parse(gameDir, versionId);
+  const minecraftFolder = MinecraftFolder.from(gameDir);
+  
+  // ЯВНО УКАЗЫВАЕМ, КУДА РАСПАКОВЫВАТЬ НАТИВЫ
+  opt.nativeRoot = path.join(gameDir, "versions", versionId, versionId + "-natives");
+  fs.mkdirSync(opt.nativeRoot, { recursive: true });
+  
+  // Теперь checkNatives точно знает, куда распаковывать
+  await LaunchPrecheck.checkNatives(minecraftFolder, resolvedVersion, opt);
+    // Гарантируем, что Java увидит нативы
+  if (!opt.extraJVMArgs) opt.extraJVMArgs = [];
+  opt.extraJVMArgs.push(`-Djava.library.path=${opt.nativeRoot}`);
   checkCancel(hooks);
   const proc = await core.launch(opt);
   if (hooks.cancel && hooks.cancel.cancelled) { try { proc.kill(); } catch {} checkCancel(hooks); }   // отменили в момент старта

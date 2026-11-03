@@ -1,14 +1,14 @@
 const { Agent } = require('undici');
 
 const finalDispatcher = new Agent({
-  connections: 8, // 8 соединений — безопасный лимит для VPN
+  connections: 8, 
   pipelining: 1,
-  headersTimeout: 30_000, // Уменьшили таймауты, чтобы быстрее отваливались мертвые соединения
+  headersTimeout: 30_000, 
   bodyTimeout: 60_000,
   connectTimeout: 10_000,
 });
 
-// ЭКСПОРТИРУЕМ ПРАВИЛЬНО: объект с полем dispatcher!
+// Отдаем сам объект напрямую, как ждет @xmcl
 module.exports = { 
-  farcipalAgent: { dispatcher: finalDispatcher } 
+  farcipalAgent: finalDispatcher 
 };
