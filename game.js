@@ -6,11 +6,20 @@ const { spawnSync } = require("child_process");
 const loaders = require("./loaders");
 const { farcipalAgent } = require('./network');
 const { ensureAssets } = require('./assets');
+const { fetch } = require('undici');
+
+
 
 // @xmcl бывают и CJS, и ESM: динамический import работает в обоих случаях
 async function loadXmcl() {
-  const pick = (m, key) => (m && m[key] ? m : m && m.default && m.default[key] ? m.default : m);
-  return { core: pick(await import("@xmcl/core"), "launch"), inst: pick(await import("@xmcl/installer"), "install") };
+   const coreModule = await import("@xmcl/core");
+   const instModule = await import("@xmcl/installer");
+   console.log("Ключи instModule:", Object.keys(instModule));
+   console.log("Ключи instModule.default:", Object.keys(instModule.default || {}));
+   return { 
+     core: { ...(coreModule.default || {}), ...coreModule }, 
+     inst: { ...(instModule.default || {}), ...instModule } 
+ };
 }
 
 function javaMajor(javaPath) {
@@ -77,6 +86,7 @@ const versionJson = (gameDir, id) => path.join(gameDir, "versions", id, id + ".j
 async function installAndLaunch(opts, hooks, deps) {
   const { gameDir, mcVersion, loaderType = "vanilla", loaderVersion, javaPath = "java", memoryGB = 4, auth, server, concurrency = 4} = opts;
   const { core, inst } = deps && deps.core ? deps : await loadXmcl();
+  console.log("Доступные функции в inst:", Object.keys(inst));
   const getJava = (deps && deps.javaMajor) || javaMajor;
   if (!mcVersion) throw new Error("Выбери версию игры");
   if ((loaderType === "forge" || loaderType === "fabric") && !loaderVersion) throw new Error(`Выбери версию ${loaderType === "forge" ? "Forge" : "Fabric"}`);
@@ -113,21 +123,37 @@ async function installAndLaunch(opts, hooks, deps) {
   
   };
 
-  // 1) базовая ванильная версия: качаем, только если её ещё нет
+  
+    // 1) базовая ванильная версия: качаем JSON и JAR руками, без @xmcl (чтобы не качал ассеты)
   hooks.state("loading");
   if (!exists(versionJson(gameDir, mcVersion))) {
-    hooks.log(`скачиваю Minecraft ${mcVersion}`);
+    hooks.log(`качаю метаданные Minecraft ${mcVersion}`);
     const list = await inst.getVersionList();
     checkCancel(hooks);
     const meta = list.versions.find((v) => v.id === mcVersion);
     if (!meta) throw new Error(`Версия ${mcVersion} не найдена в манифесте Mojang`);
-        await runTask(
-      inst.installTask && inst.installTask(meta, gameDir, { agent: farcipalAgent, concurrency: concurrency }), 
-      () => inst.install(meta, gameDir, { agent: farcipalAgent, concurrency : concurrency}), 
-      "Minecraft " + mcVersion, 
-      hooks
-    );
+    
+    // Качаем JSON версии
+    const res = await fetch(meta.url, { dispatcher: farcipalAgent });
+    if (!res.ok) throw new Error(`HTTP ${res.status} при скачивании JSON`);
+    const versionData = await res.json();
+    
+    const vDir = path.join(gameDir, "versions", mcVersion);
+    fs.mkdirSync(vDir, { recursive: true });
+    fs.writeFileSync(path.join(vDir, `${mcVersion}.json`), JSON.stringify(versionData, null, 2));
+    
+    // Качаем сам клиентский jar
+    if (versionData.downloads && versionData.downloads.client) {
+      hooks.log(`качаю client.jar для ${mcVersion}`);
+      const jarUrl = versionData.downloads.client.url;
+      const jarRes = await fetch(jarUrl, { dispatcher: farcipalAgent });
+      if (!jarRes.ok) throw new Error(`HTTP ${jarRes.status} при скачивании JAR`);
+      const jarBuffer = await jarRes.arrayBuffer();
+      fs.writeFileSync(path.join(vDir, `${mcVersion}.jar`), Buffer.from(jarBuffer));
+    }
   }
+      
+  
      // Парсим версию, чтобы достать ID индекса ассетов
   const parsedBase = await core.Version.parse(gameDir, mcVersion);
   // Если ID нет (очень старые версии), используем 'legacy'
@@ -144,20 +170,47 @@ async function installAndLaunch(opts, hooks, deps) {
   
  
   if (!have || have < need || (need === 8 && have > 8)) {
-    hooks.log(`Установлена Java ${have || 'не найдена'}. Для ${mcVersion} нужна Java ${need}${need === 8 ? " (строго)" : "+"}. Скачиваю Java ${need} с серверов Mojang...`);
+    hooks.log(`Установлена Java ${have || 'не найдена'}. Для ${mcVersion} нужна Java ${need}. Скачиваю Java с серверов Mojang...`);
     hooks.progress({ type: "Java", task: 0, total: 1 });
     
     try {
-      const jreVersionStr = String(need);
+      const { spawn } = require('child_process');
+      const sevenZip = require('7zip-bin');
       
-      // Проверяем, есть ли функция в текущей версии @xmcl
-      if (typeof inst.installJavaRuntime !== 'function') {
-        throw new Error("В вашей версии @xmcl/installer нет функции installJavaRuntime. Выполните: npm install @xmcl/installer@latest");
-      }
-      
+      // Новая обертка для 7zip: распаковывает и .lzma, и .tar
+      const unpackLZMA = async (src, dest) => {
+        const tarDir = path.dirname(src);
+        
+        // 1. Распаковываем .lzma в .tar (в ту же папку, где лежит архив)
+        await new Promise((resolve, reject) => {
+          const child = spawn(sevenZip.path7za, ['e', src, `-o${tarDir}`, '-y']);
+          child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`7zip (lzma) exited with code ${code}`)));
+          child.on('error', reject);
+        });
+
+        // 2. Распаковываем .tar в папку dest (там и появится javaw.exe)
+        const tarFile = path.join(tarDir, path.basename(src, '.lzma'));
+        await new Promise((resolve, reject) => {
+          const child = spawn(sevenZip.path7za, ['x', tarFile, `-o${dest}`, '-y']);
+          child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`7zip (tar) exited with code ${code}`)));
+          child.on('error', reject);
+        });
+      };
+
+      const javaRuntimeDir = path.join(gameDir, "runtime");
+      const cacheDir = path.join(gameDir, "cache");
+
       const downloadedJavaPath = await runTask(
-        inst.installJavaRuntimeTask ? inst.installJavaRuntimeTask(jreVersionStr, { agent: farcipalAgent, concurrency }) : null,
-        () => inst.installJavaRuntime(jreVersionStr, { agent: farcipalAgent, concurrency }),
+        inst.installJreFromMojangTask ? inst.installJreFromMojangTask({
+          destination: javaRuntimeDir,
+          unpackLZMA,
+          cacheDir
+        }) : null,
+        () => inst.installJreFromMojang({
+          destination: javaRuntimeDir,
+          unpackLZMA,
+          cacheDir
+        }),
         "Java " + need,
         hooks
       );
@@ -166,10 +219,34 @@ async function installAndLaunch(opts, hooks, deps) {
         actualJavaPath = downloadedJavaPath;
         hooks.log(`Java ${need} успешно установлена: ${actualJavaPath}`);
       } else {
-        throw new Error("Установка прошла, но путь к Java не был возвращен.");
+        // Если @xmcl не вернул путь, ищем javaw.exe (или java) вручную
+        hooks.log(`Ищу исполняемый файл Java в ${javaRuntimeDir}...`);
+        const javaExeName = process.platform === "win32" ? "javaw.exe" : "java";
+        
+        const findJavaExe = (dir) => {
+          const files = fs.readdirSync(dir, { withFileTypes: true });
+          for (const file of files) {
+            const fullPath = path.join(dir, file.name);
+            if (file.isDirectory()) {
+              const found = findJavaExe(fullPath);
+              if (found) return found;
+            } else if (file.name === javaExeName) {
+              return fullPath;
+            }
+          }
+          return null;
+        };
+        
+        const foundPath = findJavaExe(javaRuntimeDir);
+        if (foundPath) {
+          actualJavaPath = foundPath;
+          hooks.log(`Найдена Java: ${actualJavaPath}`);
+        } else {
+          throw new Error(`Не удалось найти ${javaExeName} в ${javaRuntimeDir}`);
+        }
       }
     } catch (e) {
-      throw new Error(`Не удалось скачать Java ${need}: ${e.message}. Попробуйте установить Java ${need} вручную.`);
+      throw new Error(`Не удалось скачать Java ${need}: ${e.message}.`);
     }
   }
 

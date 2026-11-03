@@ -1,0 +1,5 @@
+nodeLinker: hoisted
+shamefullyHoist: true
+allowBuilds:
+  electron: true
+  lzma-native: true
