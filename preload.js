@@ -23,5 +23,8 @@ contextBridge.exposeInMainWorld("launcher", {
     const allowed = ["game:log", "game:progress", "game:state", "store:progress"];
     if (!allowed.includes(channel)) return;
     ipcRenderer.on(channel, (_e, data) => fn(data));
+  },
+  news: {
+    get: () => ipcRenderer.invoke("news:get")
   }
 });

@@ -122,11 +122,22 @@
   if (cfg.server.host) {
     cardsEl.appendChild(card("#3dcf6f", cfg.server.name, `${cfg.server.host}:${cfg.server.port}`, "сервер", ["заход одной галочкой слева"]));
   } else {
-    cardsEl.appendChild(card("#e8b45a", "Сервер не настроен", "впиши host в config.js, и появится автозаход", "", []));
+    cardsEl.appendChild(card("#e8b45a", "Сервер не настроен","я делаю!!", "", []));
     $("joinWrap").hidden = true;
   }
-  cfg.news.forEach((n) => cardsEl.appendChild(card("#6d7288", n.title, n.text, "", n.tag ? [n.tag] : [])));
-  cardsEl.appendChild(card("#6d7288", "Папка игры", cfg.gameDir, "", []));
+    // Загружаем новости: сначала пробуем с сайта, если нет — берем из cfg.news
+  let newsItems = cfg.news;
+  try {
+    newsItems = await L.news.get();
+  } catch (e) {
+    log("Не удалось загрузить новости, использую локальные", "err");
+  }
+
+  newsItems.forEach((n) => {
+    // Выбираем цвет карточки
+    const color = n.color === "green" ? "#3dcf6f" : n.color === "amber" ? "#e8b45a" : "#6d7288";
+    cardsEl.appendChild(card(color, n.title, n.text, "", n.tag ? [n.tag] : []));
+  });
 
   // ---------- версии ----------
   let manifest = null, supported = null;   // supported: версии игры, которые умеет загрузчик (null = Vanilla)

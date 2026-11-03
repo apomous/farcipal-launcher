@@ -263,3 +263,19 @@ ipcMain.handle("game:stop", () => {
   if (game.proc) game.proc.kill();
   return true;
 });
+const NEWS_URL = "https://raw.githubusercontent.com/apomous/farcipal-launcher/main/news.json";
+
+ipcMain.handle("news:get", async () => {
+  try {
+    // Таймаут 5 секунд, чтобы не вешать лаунчер, если гитхаб лежит
+    const res = await fetch(NEWS_URL, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    if (Array.isArray(data) && data.length > 0) return data;
+    throw new Error("Пустой ответ");
+  } catch (e) {
+    console.warn("Не удалось загрузить новости:", e.message);
+    // Фолбэк: если сети нет, берем новости из config.js
+    return config.news || [];
+  }
+});
