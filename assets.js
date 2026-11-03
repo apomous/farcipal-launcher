@@ -15,10 +15,13 @@ async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress) {
     let completed = 0;
     let index = 0;
     let downloadedBytes = 0;
+        let consecutiveFailures = 0; 
+    const MAX_FAILURES = 30; 
+    let isAborted = false;
     const totalBytes = objects.reduce((acc, obj) => acc + obj.size, 0);
 
     async function worker() {
-        while (index < objects.length) {
+         while (index < objects.length && !isAborted) {
             const obj = objects[index++];
             const hash = obj.hash;
             const prefix = hash.substring(0, 2);
@@ -41,6 +44,7 @@ async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress) {
             if (!needsDownload) {
                 completed++;
                 downloadedBytes += obj.size;
+                consecutiveFailures = 0;
                 if (onProgress && completed % 100 === 0) {
                     onProgress({ task: Math.floor(downloadedBytes / 1048576), total: Math.ceil(totalBytes / 1048576) });
                 }
@@ -66,17 +70,27 @@ async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress) {
             if (success) {
                 completed++;
                 downloadedBytes += obj.size;
+                consecutiveFailures = 0;
                 if (onProgress) {
                     onProgress({ task: Math.floor(downloadedBytes / 1048576), total: Math.ceil(totalBytes / 1048576) });
                 }
-            } else {
+            } else if (!isAborted) {
+                onsecutiveFailures++;
+                if (consecutiveFailures >= MAX_FAILURES) {
+                    isAborted = true;
+                    throw new Error(`[Сеть] Слишком много ошибок подряд (${MAX_FAILURES}). Похоже, интернет или VPN полностью отвалились.`);
+                }
                 index--; 
             }
         }
     }
 
     const workers = Array.from({ length: concurrency }, () => worker());
-    await Promise.all(workers);
+     try {
+        await Promise.all(workers);
+    } catch (e) {
+        throw e;
+    }
 }
 
 module.exports = { ensureAssets };

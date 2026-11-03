@@ -118,7 +118,7 @@ function init(o) {
   configure(o || {});
   stopped = false; enabled = o.enabled !== false && !!cfg.clientId;
   if (enabled) schedule(0);
-  if (enabled && cfg.showIdle) current = { type: 0, details: two("В лаунчере"), state: two(cfg.brand), assets: { large_image: cfg.largeImage }, timestamps: { start: Date.now() } };
+  if (enabled && cfg.showIdle) current = { type: 0, details: two("собираюсь"), assets: { large_image: cfg.largeImage }, timestamps: { start: Date.now() } };
 }
 function playing(info) { current = buildActivity(info); if (enabled) push(); }
 function clear() { current = enabled && cfg.showIdle ? { type: 0, details: two("В лаунчере"), state: two(cfg.brand), assets: { large_image: cfg.largeImage }, timestamps: { start: Date.now() } } : null; if (enabled) push(); }
