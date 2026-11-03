@@ -75,7 +75,8 @@ async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress) {
                     onProgress({ task: Math.floor(downloadedBytes / 1048576), total: Math.ceil(totalBytes / 1048576) });
                 }
             } else if (!isAborted) {
-                onsecutiveFailures++;
+                consecutiveFailures++;
+
                 if (consecutiveFailures >= MAX_FAILURES) {
                     isAborted = true;
                     throw new Error(`[Сеть] Слишком много ошибок подряд (${MAX_FAILURES}). Похоже, интернет или VPN полностью отвалились.`);
