@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, safeStorage } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
@@ -8,6 +8,7 @@ const loaders = require("./loaders");
 const modrinth = require("./modrinth");
 const discord = require("./discord");
 const { installAndLaunch } = require("./game");
+
 
 
 const MANIFEST = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
@@ -26,6 +27,35 @@ function readJson(file, fallback) {
 function writeJson(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
+}
+// ---------- безопасное сохранение токена ----------
+function saveAuth(data) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    console.warn("⚠️ Шифрование недоступно. Сохраняю в открытом виде.");
+    return writeJson(authFile, data);
+  }
+  const encrypted = safeStorage.encryptString(JSON.stringify(data));
+  fs.writeFileSync(authFile, encrypted);
+}
+
+function loadAuth() {
+  if (!fs.existsSync(authFile)) return null;
+  try {
+    const data = fs.readFileSync(authFile);
+    // Если файл уже был зашифрован safeStorage
+    if (safeStorage.isEncryptionAvailable()) {
+      // Проверка на старый формат (открытый JSON), чтобы не сломать вход у тех, кто уже авторизовался
+      if (data.toString().startsWith('{')) {
+        return JSON.parse(data.toString());
+      }
+      const decrypted = safeStorage.decryptString(data);
+      return JSON.parse(decrypted);
+    }
+    return JSON.parse(data.toString());
+  } catch (e) {
+    console.error("Ошибка загрузки auth:", e);
+    return null;
+  }
 }
 const defaults = { memory: 4, version: "", snapshots: false, joinServer: false, demoName: "", loaderType: "vanilla", loaderVersion: "", discord: true };
 const getSettings = () => ({ ...defaults, ...readJson(settingsFile, {}) });
@@ -58,8 +88,8 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
-  // статус в Discord: нужен Application ID в config.js (discordClientId), включается переключателем в настройках
-  discord.init({ clientId: config.discordClientId, enabled: getSettings().discord !== false, brand: "Farcipal" });
+// статус в Discord: нужен Application ID в config.js (discordClientId), включается переключателем в настройках
+discord.init({ clientId: config.discordClientId, enabled: getSettings().discord !== false, brand: "Farcipal" });
 });
 app.on("before-quit", () => discord.destroy());
 app.on("window-all-closed", () => app.quit());
@@ -114,13 +144,13 @@ function describeToken(token) {
 }
 
 ipcMain.handle("auth:session", async () => {
-  const saved = readJson(authFile, null);
+  const saved = loadAuth();
   if (!saved) return null;
   try {
     const authManager = new Auth("select_account");
     const xbox = await authManager.refresh(saved);
     mcToken = await xbox.getMinecraft();
-    writeJson(authFile, xbox.save());
+    saveAuth(xbox.save());
     return describeToken(mcToken);
   } catch {
     return null; // сессия протухла: нужен новый вход
@@ -131,7 +161,7 @@ ipcMain.handle("auth:microsoft", async () => {
   const authManager = new Auth("select_account");
   const xbox = await authManager.launch("electron");
   mcToken = await xbox.getMinecraft();
-  writeJson(authFile, xbox.save());
+  saveAuth(xbox.save());
   return describeToken(mcToken);
 });
 
