@@ -1,6 +1,5 @@
 const { Agent } = require('undici');
 
-// Простой, чистый агент. @xmcl сам умеет делать ретраи.
 const finalDispatcher = new Agent({
   connections: 8, // 8 соединений — безопасный лимит для VPN
   pipelining: 1,
