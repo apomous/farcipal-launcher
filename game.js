@@ -39,11 +39,12 @@ function checkCancel(hooks) {
 // запуск задачи установщика с прогрессом (МБ); если у функции нет Task-версии — просто ждём промис
 async function runTask(task, fallback, label, hooks) {
   checkCancel(hooks);
+  let result;
   if (task && typeof task.startAndWait === "function") {
     let lastSend = 0;
-    if (hooks.cancel) hooks.cancel.task = task;        // чтобы stop мог вызвать task.cancel()
+    if (hooks.cancel) hooks.cancel.task = task;
     try {
-      await task.startAndWait({
+      result = await task.startAndWait({
         onUpdate() {
           const now = Date.now();
           if (now - lastSend < 150) return;
@@ -53,11 +54,14 @@ async function runTask(task, fallback, label, hooks) {
         onFailed(t, e) { hooks.log(`сбой: ${(t && t.path) || label}: ${(e && e.message) || e}`); }
       });
     } catch (e) {
-      if (hooks.cancel && hooks.cancel.cancelled) checkCancel(hooks);   // задачу отменили: это не ошибка установки
+      if (hooks.cancel && hooks.cancel.cancelled) checkCancel(hooks);
       throw e;
     } finally { if (hooks.cancel) hooks.cancel.task = null; }
-  } else await fallback();
+  } else {
+    result = await fallback();
+  }
   checkCancel(hooks);
+  return result;
 }
 
 const exists = (p) => { try { return fs.existsSync(p); } catch { return false; } };
@@ -134,11 +138,40 @@ async function installAndLaunch(opts, hooks, deps) {
   
   // Теперь отдаем это @xmcl, он проверит за секунду и перейдет к библиотекам
   const base = await ensureDeps(mcVersion, "файлы " + mcVersion);       // докачает недостающее и битое, лишнего не трогает
-
-  // 2) нужная Java: берём из JSON версии, а не угадываем
-  const need = (base.javaVersion && base.javaVersion.majorVersion) || fallbackJava(mcVersion), have = getJava(javaPath);
-  if (!have) throw new Error(`Не найдена Java. Для ${mcVersion} нужна Java ${need}+ (например, Temurin с adoptium.net)`);
-  if (have < need) throw new Error(`Для ${mcVersion} нужна Java ${need}+, у тебя ${have}. Обнови Java`);
+  const need = (base.javaVersion && base.javaVersion.majorVersion) || fallbackJava(mcVersion);
+  let actualJavaPath = javaPath;
+  let have = getJava(actualJavaPath);
+  
+ 
+  if (!have || have < need || (need === 8 && have > 8)) {
+    hooks.log(`Установлена Java ${have || 'не найдена'}. Для ${mcVersion} нужна Java ${need}${need === 8 ? " (строго)" : "+"}. Скачиваю Java ${need} с серверов Mojang...`);
+    hooks.progress({ type: "Java", task: 0, total: 1 });
+    
+    try {
+      const jreVersionStr = String(need);
+      
+      // Проверяем, есть ли функция в текущей версии @xmcl
+      if (typeof inst.installJavaRuntime !== 'function') {
+        throw new Error("В вашей версии @xmcl/installer нет функции installJavaRuntime. Выполните: npm install @xmcl/installer@latest");
+      }
+      
+      const downloadedJavaPath = await runTask(
+        inst.installJavaRuntimeTask ? inst.installJavaRuntimeTask(jreVersionStr, { agent: farcipalAgent, concurrency }) : null,
+        () => inst.installJavaRuntime(jreVersionStr, { agent: farcipalAgent, concurrency }),
+        "Java " + need,
+        hooks
+      );
+      
+      if (downloadedJavaPath) {
+        actualJavaPath = downloadedJavaPath;
+        hooks.log(`Java ${need} успешно установлена: ${actualJavaPath}`);
+      } else {
+        throw new Error("Установка прошла, но путь к Java не был возвращен.");
+      }
+    } catch (e) {
+      throw new Error(`Не удалось скачать Java ${need}: ${e.message}. Попробуйте установить Java ${need} вручную.`);
+    }
+  }
 
   // 3) загрузчик
   let versionId = mcVersion;
@@ -152,7 +185,7 @@ async function installAndLaunch(opts, hooks, deps) {
     else {
       hooks.log(`ставлю Forge ${loaderVersion}: установщик запускает Java, это может занять несколько минут`);
       hooks.progress({ type: "Forge", task: 0, total: 1 });
-      const r = await inst.installForge({ version: loaderVersion, mcversion: mcVersion }, gameDir, { java: javaPath, agent: farcipalAgent, concurrency: concurrency});
+      const r = await inst.installForge({ version: loaderVersion, mcversion: mcVersion }, gameDir, { java: actualJavaPath, agent: farcipalAgent, concurrency: concurrency});
       checkCancel(hooks);
       versionId = typeof r === "string" && r ? r : expected;
       if (!exists(versionJson(gameDir, versionId))) {                  // подстраховка: ищем установленную папку Forge
@@ -172,7 +205,7 @@ async function installAndLaunch(opts, hooks, deps) {
   const instance = loaders.instanceDir(gameDir, mcVersion, loaderType);
   fs.mkdirSync(instance, { recursive: true });
   const opt = {
-    gamePath: instance, resourcePath: gameDir, javaPath, version: versionId,
+    gamePath: instance, resourcePath: gameDir, javaPath: actualJavaPath, version: versionId,
     gameProfile: auth.profile, accessToken: auth.accessToken, userType: auth.userType,
     minMemory: 1024, maxMemory: Math.max(1024, Math.round(memoryGB * 1024)),
     launcherName: "Farcipal", launcherBrand: "Farcipal",

@@ -10,8 +10,8 @@
     "dist": "electron-builder --win portable"
   },
   "dependencies": {
-    "@xmcl/core": "^2.12.0",
-    "@xmcl/installer": "^5.4.0",
+    "@xmcl/core": "^2.16.3",
+    "@xmcl/installer": "^6.3.7",
     "msmc": "^5.0.5",
     "undici": "^6.21.0"
   },
@@ -19,7 +19,7 @@
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8"
   },
-    "build": {
+  "build": {
     "appId": "dev.farcipal.launcher",
     "productName": "Farcipal Launcher",
     "files": [

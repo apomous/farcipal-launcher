@@ -28,7 +28,7 @@ const two = (s) => (String(s).length < 2 ? String(s) + " " : String(s));      //
 function buildActivity(info) {
   const loader = LOADER[info.loaderType] || "";
   const details = `Minecraft ${info.mc}`;                      // «Minecraft 1.21.4 • Farcipal»
-  const state = info.server ? `На сервере ${info.server}` : loader ? `${loader}${info.loaderVersion ? " " + info.loaderVersion : ""}` : "Ванильная игра";
+  const state = info.server ? `На сервере ${info.server}` : loader ? `${loader}` : "Ванильная игра";
   const a = {
     type: 0,
     status_display_type: cfg.statusDisplayType,
