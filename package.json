@@ -1,13 +1,15 @@
 {
   "name": "farcipal-launcher",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Farcipal Desktop Client",
   "main": "main.js",
   "author": "apomous",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win portable"
+    "dist": "electron-builder --win portable",
+    "release": "electron-builder --win --publish always",
+    "postinstall": "node scripts/fix-xmcl.js"
   },
   "dependencies": {
     "7zip-bin": "^5.2.0",
@@ -16,7 +18,8 @@
     "@xmcl/unzip": "2.2.0",
     "lzma-native": "^8.0.6",
     "msmc": "^5.0.5",
-    "undici": "^6.21.0"
+    "undici": "^6.21.0",
+    "electron-updater": "6.8.11"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -25,20 +28,11 @@
   },
   "build": {
     "appId": "dev.farcipal.launcher",
-    "productName": "Farcipal Launcher",
-    "files": [
-      "main.js",
-      "preload.js",
-      "config.js",
-      "game.js",
-      "loaders.js",
-      "modrinth.js",
-      "discord.js",
-      "network.js",
-      "icon.png",
-      "assets.js",
-      "renderer/**/*"
-    ],
+    "productName": "Farcipal",
+    "copyright": "Copyright © 2026 apomous",
+    "directories": { "buildResources": "build", "output": "dist" },
+    "files": ["**/*", "!dist/**", "!.github/**", "!**/*.md", "!**/*.map"],
+    "asar": true,
     "win": {
       "target": [
         "portable"
