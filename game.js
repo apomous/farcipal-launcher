@@ -158,7 +158,6 @@ async function installAndLaunch(opts, hooks, deps) {
   const parsedBase = await core.Version.parse(gameDir, mcVersion);
   // Если ID нет (очень старые версии), используем 'legacy'
   const assetIndexId = (parsedBase.assetIndex && parsedBase.assetIndex.id) ? parsedBase.assetIndex.id : 'legacy';
-  
   hooks.log(`Проверяю и докачиваю ассеты (индекс: ${assetIndexId})...`);
   await ensureAssets(gameDir, assetIndexId, concurrency, (p) => hooks.progress({ type: "файлы " + mcVersion, ...p })); 
   
