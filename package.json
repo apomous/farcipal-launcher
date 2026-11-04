@@ -1,6 +1,6 @@
 {
   "name": "farcipal-launcher",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Farcipal Desktop Client",
   "main": "main.js",
   "author": "apomous",
@@ -33,6 +33,9 @@
     "directories": { "buildResources": "build", "output": "dist" },
     "files": ["**/*", "!dist/**", "!.github/**", "!**/*.md", "!**/*.map"],
     "asar": true,
+    "asarUnpack": [
+      "**/node_modules/7zip-bin/**"
+    ],
     "win": {
       "target": [{ "target": "nsis", "arch": ["x64"] }],
       "icon": "build/icon.ico"

@@ -154,8 +154,24 @@ async function installAndLaunch(opts, hooks, deps) {
   }
       
   
-     // Парсим версию, чтобы достать ID индекса ассетов
+  // Парсим версию, чтобы достать ID индекса ассетов
   const parsedBase = await core.Version.parse(gameDir, mcVersion);
+  
+  const assetIndex = parsedBase.assetIndex;
+  if (assetIndex && assetIndex.url) {
+    const indexDir = path.join(gameDir, "assets", "indexes");
+    fs.mkdirSync(indexDir, { recursive: true });
+    const indexPath = path.join(indexDir, `${assetIndex.id}.json`);
+    
+    if (!fs.existsSync(indexPath)) {
+      hooks.log(`качаю индекс ассетов ${assetIndex.id}...`);
+      const indexRes = await fetch(assetIndex.url, { dispatcher: farcipalAgent });
+      if (!indexRes.ok) throw new Error(`HTTP ${indexRes.status} при скачивании индекса`);
+      const indexData = await indexRes.text();
+      fs.writeFileSync(indexPath, indexData);
+    }
+  }
+
   // Если ID нет (очень старые версии), используем 'legacy'
   const assetIndexId = (parsedBase.assetIndex && parsedBase.assetIndex.id) ? parsedBase.assetIndex.id : 'legacy';
   hooks.log(`Проверяю и докачиваю ассеты (индекс: ${assetIndexId})...`);
