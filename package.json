@@ -34,10 +34,28 @@
     "files": ["**/*", "!dist/**", "!.github/**", "!**/*.md", "!**/*.map"],
     "asar": true,
     "win": {
-      "target": [
-        "portable"
-      ],
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
       "icon": "build/icon.ico"
-    }
+    },
+    "nsis": {
+      "artifactName": "Farcipal_Setup_${version}.exe",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Farcipal",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "license": "build/license.txt",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "uninstallDisplayName": "Farcipal"
+    },
+    "publish": [
+      { "provider": "github", "owner": "apomous", "repo": "farcipal-launcher", "releaseType": "draft" }
+    ]
   }
 }
+    
+

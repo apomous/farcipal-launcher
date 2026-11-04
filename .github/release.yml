@@ -1,0 +1,34 @@
+name: Release
+
+# Сборка установщика при пуше тега v*: git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write            # нужно, чтобы электрон-билдер создал релиз и загрузил файлы
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9         # поставь свою мажорную версию pnpm (pnpm -v)
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: node scripts/fix-xmcl.js
+
+      # Собирает Farcipal_Setup_<версия>.exe, latest.yml и .blockmap и кладёт их в ЧЕРНОВИК релиза.
+      # Проверь файлы и нажми Publish, только после этого друзья получат обновление.
+      - run: pnpm exec electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

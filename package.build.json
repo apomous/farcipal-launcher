@@ -1,0 +1,40 @@
+{
+  "name": "farcipal-launcher",
+  "version": "0.1.0",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --publish never",
+    "release": "electron-builder --win --publish always"
+  },
+  "build": {
+    "appId": "dev.farcipal.launcher",
+    "productName": "Farcipal",
+    "copyright": "Copyright © 2026 apomous",
+    "directories": { "buildResources": "build", "output": "dist" },
+    "files": ["**/*", "!dist/**", "!.github/**", "!**/*.md", "!**/*.map"],
+    "asar": true,
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "artifactName": "Farcipal_Setup_${version}.exe",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Farcipal",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "license": "build/license.txt",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "uninstallDisplayName": "Farcipal"
+    },
+    "publish": [
+      { "provider": "github", "owner": "apomous", "repo": "farcipal-launcher", "releaseType": "draft" }
+    ]
+  }
+}

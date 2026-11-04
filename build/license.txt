@@ -1,0 +1,16 @@
+Farcipal Launcher
+Copyright (c) 2026 apomous
+
+Released under the MIT License. The full text is in the LICENSE file of the project:
+https://github.com/apomous/farsipal-launcher
+
+DISCLAIMER
+
+Farcipal is an unofficial, third-party launcher. It is not affiliated with, endorsed by,
+sponsored by, or approved by Mojang Studios, Microsoft or Discord.
+
+"Minecraft" is a trademark of Mojang Synergies AB. To play the full game you need your own
+legal copy of Minecraft: Java Edition and a Microsoft account that owns it.
+Mods and resource packs are provided by third parties (Modrinth); their authors' licenses apply.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.

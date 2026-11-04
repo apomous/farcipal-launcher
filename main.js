@@ -88,6 +88,8 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
+  const updater = require("./updater");           // наверху файла
+updater.init({ send, log: console.log, isGameRunning: () => !!game });
 // статус в Discord: нужен Application ID в config.js (discordClientId), включается переключателем в настройках
 discord.init({ clientId: config.discordClientId, enabled: getSettings().discord !== false, brand: "Farcipal" });
 });
