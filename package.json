@@ -7,7 +7,7 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win portable",
+    "dist": "electron-builder --win nsis",
     "release": "electron-builder --win --publish always",
     "postinstall": "node scripts/fix-xmcl.js"
   },
