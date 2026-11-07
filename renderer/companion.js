@@ -794,11 +794,12 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
   });
   function rootRest(r, out) {
     const sc = cur.sc, base = R * 0.8 * sc, Lr = (r.len * sc) / (NRP - 1);
+    const tiltRad = (tilt + Math.sin(time * 0.7) * 0.8) * Math.PI / 180;
     let x = eye.x + Math.cos(r.th) * base, y = eye.y + Math.sin(r.th) * base * 0.96;
     out[0] = { x, y };
     for (let k = 1; k < NRP; k++) {
       const s = k / (NRP - 1), g = smooth01(clamp((s - 0.4) / 0.6, 0, 1));
-      const ang = r.a0 + r.curl * Math.pow(g, 1.4) + 0.14 * Math.sin(time * 0.9 + r.ph + k * 0.5) * s;
+      const ang = r.a0 + r.curl * Math.pow(g, 1.4) + 0.14 * Math.sin(time * 0.9 + r.ph + k * 0.5) * s + tiltRad;
       x += Math.cos(ang) * Lr; y += Math.sin(ang) * Lr;
       out[k] = { x, y };
     }
@@ -1052,7 +1053,7 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
     ctxF.clearRect(0, 0, W, H);
     for (let i = parts.length - 1; i >= 0; i--) {
       const p = parts[i];
-      p.life += 1 / 60;
+      p.life += dt;
       if (p.life >= p.max) { parts.splice(i, 1); continue; }
       p.vy += 900 / 60; p.vx *= 0.985; p.x += p.vx / 60; p.y += p.vy / 60; p.ang += p.spin / 60;
       const a = 1 - p.life / p.max;
