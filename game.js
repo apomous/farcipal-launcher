@@ -193,20 +193,44 @@ async function installAndLaunch(opts, hooks, deps) {
       const sevenZip = require('7zip-bin');
       
       // Новая обертка для 7zip: распаковывает и .lzma, и .tar
-      const unpackLZMA = async (src, dest) => {
+            const unpackLZMA = async (src, dest) => {
         const tarDir = path.dirname(src);
+        let sevenZipPath = sevenZip.path7za;
         
-        // 1. Распаковываем .lzma в .tar (в ту же папку, где лежит архив)
+        // 1. Ищем правильный путь в распакованной папке (для собранного .exe)
+        if (process.resourcesPath) {
+          const unpackedPath = path.join(
+            process.resourcesPath, 
+            'app.asar.unpacked', 
+            'node_modules', 
+            '7zip-bin', 
+            'win', 
+            'x64', 
+            '7za.exe'
+          );
+          if (fs.existsSync(unpackedPath)) {
+            sevenZipPath = unpackedPath;
+          }
+        }
+
+        // Проверка, что файл существует
+        if (!fs.existsSync(sevenZipPath)) {
+           throw new Error(`7za.exe не найден по пути: ${sevenZipPath}`);
+        }
+
+        // 2. Распаковываем .lzma в .tar
         await new Promise((resolve, reject) => {
-          const child = spawn(sevenZip.path7za, ['e', src, `-o${tarDir}`, '-y']);
+          // ИСПОЛЬЗУЕМ sevenZipPath!
+          const child = spawn(sevenZipPath, ['e', src, `-o${tarDir}`, '-y']);
           child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`7zip (lzma) exited with code ${code}`)));
           child.on('error', reject);
         });
 
-        // 2. Распаковываем .tar в папку dest (там и появится javaw.exe)
+        // 3. Распаковываем .tar в папку dest
         const tarFile = path.join(tarDir, path.basename(src, '.lzma'));
         await new Promise((resolve, reject) => {
-          const child = spawn(sevenZip.path7za, ['x', tarFile, `-o${dest}`, '-y']);
+          // ТУТ ТОЖЕ ИСПОЛЬЗУЕМ sevenZipPath!
+          const child = spawn(sevenZipPath, ['x', tarFile, `-o${dest}`, '-y']);
           child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`7zip (tar) exited with code ${code}`)));
           child.on('error', reject);
         });
