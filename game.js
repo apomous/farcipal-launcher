@@ -184,84 +184,56 @@ async function installAndLaunch(opts, hooks, deps) {
   let have = getJava(actualJavaPath);
   
  
-  if (!have || have < need || (need === 8 && have > 8)) {
-    hooks.log(`Установлена Java ${have || 'не найдена'}. Для ${mcVersion} нужна Java ${need}. Скачиваю Java с серверов Mojang...`);
+    if (!have || have < need || (need === 8 && have > 8)) {
+    hooks.log(`Установлена Java ${have || 'не найдена'}. Для ${mcVersion} нужна Java ${need}. Скачиваю Java ${need}...`);
     hooks.progress({ type: "Java", task: 0, total: 1 });
     
     try {
-      const { spawn } = require('child_process');
-      const sevenZip = require('7zip-bin');
-      
-      // Новая обертка для 7zip: распаковывает и .lzma, и .tar
-            const unpackLZMA = async (src, dest) => {
-        const tarDir = path.dirname(src);
-        let sevenZipPath = sevenZip.path7za;
-        
-        // 1. Ищем правильный путь в распакованной папке (для собранного .exe)
-        if (process.resourcesPath) {
-          const unpackedPath = path.join(
-            process.resourcesPath, 
-            'app.asar.unpacked', 
-            'node_modules', 
-            '7zip-bin', 
-            'win', 
-            'x64', 
-            '7za.exe'
-          );
-          if (fs.existsSync(unpackedPath)) {
-            sevenZipPath = unpackedPath;
-          }
-        }
-
-        // Проверка, что файл существует
-        if (!fs.existsSync(sevenZipPath)) {
-           throw new Error(`7za.exe не найден по пути: ${sevenZipPath}`);
-        }
-
-        // 2. Распаковываем .lzma в .tar
-        await new Promise((resolve, reject) => {
-          // ИСПОЛЬЗУЕМ sevenZipPath!
-          const child = spawn(sevenZipPath, ['e', src, `-o${tarDir}`, '-y']);
-          child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`7zip (lzma) exited with code ${code}`)));
-          child.on('error', reject);
-        });
-
-        // 3. Распаковываем .tar в папку dest
-        const tarFile = path.join(tarDir, path.basename(src, '.lzma'));
-        await new Promise((resolve, reject) => {
-          // ТУТ ТОЖЕ ИСПОЛЬЗУЕМ sevenZipPath!
-          const child = spawn(sevenZipPath, ['x', tarFile, `-o${dest}`, '-y']);
-          child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`7zip (tar) exited with code ${code}`)));
-          child.on('error', reject);
-        });
-      };
-
       const javaRuntimeDir = path.join(gameDir, "runtime");
-      const cacheDir = path.join(gameDir, "cache");
-
-      const downloadedJavaPath = await runTask(
-        inst.installJreFromMojangTask ? inst.installJreFromMojangTask({
-          destination: javaRuntimeDir,
-          unpackLZMA,
-          cacheDir
-        }) : null,
-        () => inst.installJreFromMojang({
-          destination: javaRuntimeDir,
-          unpackLZMA,
-          cacheDir
-        }),
-        "Java " + need,
-        hooks
-      );
       
-      if (downloadedJavaPath) {
-        actualJavaPath = downloadedJavaPath;
-        hooks.log(`Java ${need} успешно установлена: ${actualJavaPath}`);
-      } else {
-        // Если @xmcl не вернул путь, ищем javaw.exe (или java) вручную
-        hooks.log(`Ищу исполняемый файл Java в ${javaRuntimeDir}...`);
-        const javaExeName = process.platform === "win32" ? "javaw.exe" : "java";
+      // Если нужна Java 21+, качаем через Adoptium API
+      if (need >= 21) {
+        hooks.log(`Скачиваю Java ${need} с Adoptium...`);
         
+        // Получаем ссылку на последнюю версию нужной Java для Windows x64
+        const apiUrl = `https://api.adoptium.net/v3/assets/latest/${need}/hotspot?architecture=x64&image_type=jdk&os=windows`;
+        const apiRes = await fetch(apiUrl, { dispatcher: farcipalAgent });
+        if (!apiRes.ok) throw new Error(`HTTP ${apiRes.status} при запросе к Adoptium`);
+        const apiData = await apiRes.json();
+        
+        if (!apiData || !apiData[0] || !apiData[0].binary || !apiData[0].binary.package || !apiData[0].binary.package.link) {
+          throw new Error("Не удалось получить ссылку на Java от Adoptium");
+        }
+        
+        const downloadUrl = apiData[0].binary.package.link;
+        hooks.log(`качаю архив Java ${need}...`);
+        
+        // Скачиваем архив
+        const zipRes = await fetch(downloadUrl, { dispatcher: farcipalAgent });
+        if (!zipRes.ok) throw new Error(`HTTP ${zipRes.status} при скачивании архива`);
+        const zipBuffer = await zipRes.arrayBuffer();
+        
+        const zipPath = path.join(gameDir, "cache", `java-${need}.zip`);
+        fs.mkdirSync(path.dirname(zipPath), { recursive: true });
+        fs.writeFileSync(zipPath, Buffer.from(zipBuffer));
+        
+        // Распаковываем через 7zip
+        const sevenZip = require('7zip-bin');
+        let sevenZipPath = sevenZip.path7za;
+        if (process.resourcesPath) {
+          const unpackedPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '7zip-bin', 'win', 'x64', '7za.exe');
+          if (fs.existsSync(unpackedPath)) sevenZipPath = unpackedPath;
+        }
+        
+        const { spawn } = require('child_process');
+        await new Promise((resolve, reject) => {
+          const child = spawn(sevenZipPath, ['x', zipPath, `-o${javaRuntimeDir}`, '-y']);
+          child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`7zip exited with code ${code}`)));
+          child.on('error', reject);
+        });
+        
+        // Ищем javaw.exe в распакованной папке
+        const javaExeName = process.platform === "win32" ? "javaw.exe" : "java";
         const findJavaExe = (dir) => {
           const files = fs.readdirSync(dir, { withFileTypes: true });
           for (const file of files) {
@@ -279,16 +251,77 @@ async function installAndLaunch(opts, hooks, deps) {
         const foundPath = findJavaExe(javaRuntimeDir);
         if (foundPath) {
           actualJavaPath = foundPath;
-          hooks.log(`Найдена Java: ${actualJavaPath}`);
+          hooks.log(`Java ${need} успешно установлена: ${actualJavaPath}`);
         } else {
           throw new Error(`Не удалось найти ${javaExeName} в ${javaRuntimeDir}`);
+        }
+      } else {
+        // Для старых версий (Java 8) используем встроенную функцию
+        const { spawn } = require('child_process');
+        const sevenZip = require('7zip-bin');
+        
+        const unpackLZMA = async (src, dest) => {
+          const tarDir = path.dirname(src);
+          let sevenZipPath = sevenZip.path7za;
+          if (process.resourcesPath) {
+            const unpackedPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '7zip-bin', 'win', 'x64', '7za.exe');
+            if (fs.existsSync(unpackedPath)) sevenZipPath = unpackedPath;
+          }
+          if (!fs.existsSync(sevenZipPath)) throw new Error(`7za.exe не найден по пути: ${sevenZipPath}`);
+          
+          await new Promise((resolve, reject) => {
+            const child = spawn(sevenZipPath, ['e', src, `-o${tarDir}`, '-y']);
+            child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`7zip (lzma) exited with code ${code}`)));
+            child.on('error', reject);
+          });
+          
+          const tarFile = path.join(tarDir, path.basename(src, '.lzma'));
+          await new Promise((resolve, reject) => {
+            const child = spawn(sevenZipPath, ['x', tarFile, `-o${dest}`, '-y']);
+            child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`7zip (tar) exited with code ${code}`)));
+            child.on('error', reject);
+          });
+        };
+        
+        const cacheDir = path.join(gameDir, "cache");
+        const downloadedJavaPath = await runTask(
+          inst.installJreFromMojangTask ? inst.installJreFromMojangTask({ destination: javaRuntimeDir, unpackLZMA, cacheDir }) : null,
+          () => inst.installJreFromMojang({ destination: javaRuntimeDir, unpackLZMA, cacheDir }),
+          "Java " + need,
+          hooks
+        );
+        
+        if (downloadedJavaPath) {
+          actualJavaPath = downloadedJavaPath;
+          hooks.log(`Java ${need} успешно установлена: ${actualJavaPath}`);
+        } else {
+          const javaExeName = process.platform === "win32" ? "javaw.exe" : "java";
+          const findJavaExe = (dir) => {
+            const files = fs.readdirSync(dir, { withFileTypes: true });
+            for (const file of files) {
+              const fullPath = path.join(dir, file.name);
+              if (file.isDirectory()) {
+                const found = findJavaExe(fullPath);
+                if (found) return found;
+              } else if (file.name === javaExeName) {
+                return fullPath;
+              }
+            }
+            return null;
+          };
+          const foundPath = findJavaExe(javaRuntimeDir);
+          if (foundPath) {
+            actualJavaPath = foundPath;
+            hooks.log(`Найдена Java: ${actualJavaPath}`);
+          } else {
+            throw new Error(`Не удалось найти ${javaExeName} в ${javaRuntimeDir}`);
+          }
         }
       }
     } catch (e) {
       throw new Error(`Не удалось скачать Java ${need}: ${e.message}.`);
     }
   }
-
   // 3) загрузчик
   let versionId = mcVersion;
   if (loaderType === "fabric") {
