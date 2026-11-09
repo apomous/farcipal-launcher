@@ -145,14 +145,20 @@
   let manifest = null, supported = null;   // supported: версии игры, которые умеет загрузчик (null = Vanilla)
 function fillVersions() {
   if (!manifest) return;
-  const keep = ver.value || settings.version;
+  const currentVal = ver.value;
+  const keep = (currentVal && currentVal !== "загрузка…") ? currentVal : settings.version;
   ver.textContent = "";
   manifest.versions
     .filter((v) => supported ? supported.has(v.id) : (v.type === "release" || (snap.checked && v.type === "snapshot")))
-    .forEach((v) => { const o = document.createElement("option"); o.value = v.id; o.textContent = v.id; ver.appendChild(o); });
+    .forEach((v) => { 
+      const o = document.createElement("option"); 
+      o.value = v.id; 
+      o.textContent = v.id; 
+      ver.appendChild(o); 
+    });
   const has = (id) => [...ver.options].some((o) => o.value === id);
   ver.value = has(keep) ? keep : has(manifest.latest.release) ? manifest.latest.release : (ver.options[0] ? ver.options[0].value : "");
-  }
+}
   try {
     log("загружаю список версий");
     manifest = await L.versions();
