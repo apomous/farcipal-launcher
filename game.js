@@ -181,9 +181,38 @@ async function installAndLaunch(opts, hooks, deps) {
   
   // Теперь отдаем это @xmcl, он проверит за секунду и перейдет к библиотекам
   const base = await ensureDeps(mcVersion, "файлы " + mcVersion);       // докачает недостающее и битое, лишнего не трогает
-  const need = (base.javaVersion && base.javaVersion.majorVersion) || fallbackJava(mcVersion);
+    const need = (base.javaVersion && base.javaVersion.majorVersion) || fallbackJava(mcVersion);
   let actualJavaPath = javaPath;
   let have = getJava(actualJavaPath);
+
+  // --- УМНАЯ ПРОВЕРКА ЛОКАЛЬНОЙ JAVA В ПАПКЕ RUNTIME ---
+  const runtimeDir = path.join(gameDir, "runtime");
+  const javaExeName = process.platform === "win32" ? "javaw.exe" : "java";
+  
+  const findJavaInDir = (dir) => {
+    if (!fs.existsSync(dir)) return null;
+    const files = fs.readdirSync(dir, { withFileTypes: true });
+    for (const file of files) {
+      const fullPath = path.join(dir, file.name);
+      if (file.isDirectory()) {
+        const found = findJavaInDir(fullPath);
+        if (found) return found;
+      } else if (file.name === javaExeName) {
+        return fullPath;
+      }
+    }
+    return null;
+  };
+
+  const localJavaPath = findJavaInDir(runtimeDir);
+  if (localJavaPath) {
+    const localVer = getJava(localJavaPath);
+    if (localVer && localVer >= need) {
+      actualJavaPath = localJavaPath;
+      have = localVer; // Java найдена, качать не нужно
+    }
+  }
+  // ----------------------------------------------------
   
  
     if (!have || have < need || (need === 8 && have > 8)) {
@@ -196,19 +225,28 @@ async function installAndLaunch(opts, hooks, deps) {
       // Если нужна Java 21+, качаем через Adoptium API
       if (need >= 21) {
         hooks.log(`Скачиваю Java ${need} с Adoptium...`);
-        
-        // Получаем ссылку на последнюю версию нужной Java для Windows x64
+        let downloadUrl = null;
         const apiUrl = `https://api.adoptium.net/v3/assets/latest/${need}/hotspot?architecture=x64&image_type=jdk&os=windows`;
-        const apiRes = await fetch(apiUrl, { dispatcher: farcipalAgent });
-        if (!apiRes.ok) throw new Error(`HTTP ${apiRes.status} при запросе к Adoptium`);
-        const apiData = await apiRes.json();
-        
-        if (!apiData || !apiData[0] || !apiData[0].binary || !apiData[0].binary.package || !apiData[0].binary.package.link) {
-          throw new Error("Не удалось получить ссылку на Java от Adoptium");
+        try {
+          const apiRes = await fetch(apiUrl, { dispatcher: farcipalAgent });
+          if (!apiRes.ok) throw new Error(`HTTP ${apiRes.status}`);
+          const apiData = await apiRes.json();
+          
+          if (apiData && apiData[0] && apiData[0].binary && apiData[0].binary.package) {
+            downloadUrl = apiData[0].binary.package.link;
+          }
+        } catch (e) {
+          hooks.log(`Ошибка API Adoptium (${e.message}). Пробую резервную ссылку...`);
         }
-        
-        const downloadUrl = apiData[0].binary.package.link;
+
+        // Если API не дало ссылку, используем прямой статический URL
+        if (!downloadUrl) {
+          downloadUrl = `https://api.adoptium.net/v3/binary/latest/${need}/ga/windows/x64/jdk/hotspot/normal/eclipse`;
+        }
+
         hooks.log(`качаю архив Java ${need}...`);
+        hooks.log(`Скачивание Java ${need} может занять несколько минут, не закрывай лаунчер...`);
+       
         
         // Скачиваем архив
         const zipRes = await fetch(downloadUrl, { dispatcher: farcipalAgent });
@@ -385,4 +423,5 @@ async function installAndLaunch(opts, hooks, deps) {
   if (hooks.cancel && hooks.cancel.cancelled) { try { proc.kill(); } catch {} checkCancel(hooks); }   // отменили в момент старта
   return { proc, versionId };
 }
+
 module.exports = { installAndLaunch, javaMajor, fallbackJava };

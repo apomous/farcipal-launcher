@@ -85,20 +85,31 @@ function checkUrl(u) {
 }
 function safeName(name, ext) {
   const n = path.basename(String(name || ""));
-  if (!n || n.startsWith(".") || !n.toLowerCase().endsWith(ext)) throw new Error("странное имя файла: " + name);
+  // Проверяем на недопустимые символы Windows (включая двоеточие)
+  if (!n || n.startsWith(".") || /[<>:"/\\|?*]/.test(n) || !n.toLowerCase().endsWith(ext)) {
+    throw new Error("странное имя файла: " + name);
+  }
   return n;
 }
+
 async function sha1File(file) {
   return new Promise((ok, bad) => { const h = crypto.createHash("sha1"), s = fs.createReadStream(file); s.on("data", (d) => h.update(d)); s.on("error", bad); s.on("end", () => ok(h.digest("hex"))); });
 }
-async function download(url, dest, sha1, onPct, tries = 3) {
+async function download(url, dest, sha1, onPct, tries = 3,signal = null) {
   checkUrl(url);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   let last;
   for (let i = 0; i < tries; i++) {
     const tmp = dest + ".part";
     try {
-      const res = await fetch(url, { headers: { "User-Agent": cfg.ua }, signal: AbortSignal.timeout(10 * 60 * 1000) });
+      const fetchOpts = { headers: { "User-Agent": cfg.ua } };
+      if (signal){
+        fetchOpts.signal = AbortSignal.any([signal, AbortSignal.timeout(10 * 60 * 1000)]);
+      } else {
+        fetchOpts.signal = AbortSignal.timeout(10 * 60 * 1000);
+      }
+      
+      const res = await fetch(url, fetchOpts);
       if (!res.ok) throw new Error("HTTP " + res.status);
       const total = Number(res.headers.get("content-length")) || 0, out = fs.createWriteStream(tmp), reader = res.body.getReader(), hash = crypto.createHash("sha1");
       let got = 0;
@@ -139,7 +150,7 @@ function listInstalled(root, mc, loaderType) {
 }
 
 const inflight = new Set();
-async function install({ root, mc, loaderType, kind, projectId, title, icon, slug }, onProgress) {
+async function install({ root, mc, loaderType, kind, projectId, title, icon, slug,signal }, onProgress) {
   if (!KINDS[kind]) throw new Error("неизвестный тип: " + kind);
   if (kind === "mod" && (!loaderType || loaderType === "vanilla")) throw new Error("Для модов выбери Fabric или Forge в настройках");
   if (!mc) throw new Error("не выбрана версия игры");
@@ -156,7 +167,7 @@ async function install({ root, mc, loaderType, kind, projectId, title, icon, slu
       if (!f) throw new Error(`${info.title}: у версии нет файла`);
       const name = safeName(f.filename, K.ext), dest = path.join(dir, name);
       const same = fs.existsSync(dest) && f.hashes && f.hashes.sha1 && (await sha1File(dest)) === f.hashes.sha1;
-      if (!same) { note(info.title, 0); await download(f.url, dest, f.hashes && f.hashes.sha1, (p) => note(info.title, p)); }
+      if (!same) { note(info.title, 0); await download(f.url, dest, f.hashes && f.hashes.sha1, (p) => note(info.title, p), 3, signal); }
       const m2 = readMeta(inst);
       if (already && already[0] !== key(kind, name)) { try { fs.unlinkSync(path.join(dir, already[0].split("/").slice(1).join("/"))); } catch {} delete m2[already[0]]; }   // обновление: старый файл убираем
       m2[key(kind, name)] = { kind, projectId: pid, slug: info.slug, title: info.title, icon: info.icon, versionId: v.id, versionNumber: v.version_number, installedAt: new Date().toISOString(), dependencyOf: parentId || undefined };
@@ -193,7 +204,8 @@ function register(ipcMain, ctx) {
   ipcMain.handle("store:preview", (_e, o) => preview({ projectId: o.projectId, kind: o.kind, mc: o.mc, loader: o.loader }));
   ipcMain.handle("store:installed", (_e, o) => listInstalled(ctx.gameDir, o.mc, o.loader));
   ipcMain.handle("store:install", async (_e, o) => {
-    try { return { ok: true, ...(await install({ ...prof(o), kind: o.kind, projectId: o.projectId, title: o.title, icon: o.icon, slug: o.slug }, (p) => ctx.send("store:progress", p))) }; }
+    
+    try { return { ok: true, ...(await install({ ...prof(o), kind: o.kind, projectId: o.projectId, title: o.title, icon: o.icon, slug: o.slug, signal: ctx.signal }, (p) => ctx.send("store:progress", p))) }; }
     catch (e) { return { ok: false, error: e.message || String(e) }; }
   });
   ipcMain.handle("store:remove", (_e, o) => { try { return { ok: remove({ ...prof(o), kind: o.kind, file: o.file }) }; } catch (e) { return { ok: false, error: e.message }; } });

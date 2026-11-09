@@ -18,7 +18,9 @@ const authFile = path.join(app.getPath("userData"), "auth.json");
 const launchLog = path.join(gameDir, "launcher-last.log");   // полный журнал последнего запуска: его можно прислать при проблемах
 
 let win = null;
-let game = null; // { proc, cancel } пока игра устанавливается, запускается или работает
+let game = null;
+const abortController = new AbortController();
+const send = (ch, data) => win && !win.isDestroyed() && win.webContents.send(ch, data); // { proc, cancel } пока игра устанавливается, запускается или работает
 
 // ---------- файлы настроек ----------
 function readJson(file, fallback) {
@@ -93,7 +95,10 @@ updater.init({ send, log: console.log, isGameRunning: () => !!game });
 // статус в Discord: нужен Application ID в config.js (discordClientId), включается переключателем в настройках
 discord.init({ clientId: config.discordClientId, enabled: getSettings().discord !== false, brand: "Farcipal" });
 });
-app.on("before-quit", () => discord.destroy());
+app.on("before-quit", () => {
+  abortController.abort(); // <--- ДОБАВИТЬ
+  discord.destroy();
+});
 app.on("window-all-closed", () => app.quit());
 
 ipcMain.on("win:min", () => win && win.minimize());
@@ -202,11 +207,12 @@ function buildAuth(mode, name) {
 // ---------- запуск ----------
 
 // магазин модов и ресурспаков: IPC store:* живёт в modrinth.js
-modrinth.register(ipcMain, { gameDir, shell, send });
+modrinth.register(ipcMain, { gameDir, shell, send, signal: abortController.signal });
 
 ipcMain.handle("game:play", async (_e, opts) => {
   if (game) return { ok: false, error: "Игра уже запущена" };
-  const { version, loaderType = "vanilla", loaderVersion = "", memory, mode, name, joinServer, concurrency = 4 } = opts;
+  let { version, loaderType = "vanilla", loaderVersion = "", memory, mode, name, joinServer, concurrency = 4 } = opts;
+  memory = Math.max(1, Math.min(32, Number(memory) || 4));
 
   let auth;
   try { auth = buildAuth(mode, name); } catch (e) { return { ok: false, error: e.message }; }
@@ -237,6 +243,8 @@ ipcMain.handle("game:play", async (_e, opts) => {
     proc.on("error", (e) => { game = null; discord.clear(); log("не удалось запустить Java: " + e.message); send("game:state", { state: "error", code: -1 }); });
     proc.on("close", (code) => {
       discord.clear();
+      if (proc.stdout) proc.stdout.removeAllListeners("data");
+      if (proc.stderr) proc.stderr.removeAllListeners("data");
       const byUser = !!(game && game.cancel.cancelled);   // закрыли кнопкой «Остановить»: это не сбой
       game = null;
       const c = (code === null ? -1 : code) | 0;      // 4294967289 -> -7: показываем знаковое значение

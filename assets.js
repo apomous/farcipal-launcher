@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto'); 
 const { fetch } = require('undici'); 
+const { pipeline } = require('stream/promises');
 const { farcipalAgent } = require('./network');
 
 async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress) {
@@ -28,28 +29,24 @@ async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress) {
             const dest = path.join(outputDir, prefix, hash);
             const url = `https://resources.download.minecraft.net/${prefix}/${hash}`;
 
-            let needsDownload = true;
-            if (fs.existsSync(dest)) {
-                const stat = fs.statSync(dest);
-                if (stat.size === obj.size) {
-                    // ЧИТАЕМ ФАЙЛ И СЧИТАЕМ SHA1
-                    const fileBuffer = fs.readFileSync(dest);
-                    const fileHash = crypto.createHash('sha1').update(fileBuffer).digest('hex');
-                    if (fileHash === hash) {
-                        needsDownload = false; // Файл идеален, @xmcl будет счастлив
-                    }
-                }
+    let needsDownload = true;
+    if (fs.existsSync(dest)) {
+        const stat = fs.statSync(dest);
+        if (stat.size === obj.size) {
+        try {
+            const fileHash = crypto.createHash('sha1');
+            await pipeline(fs.createReadStream(dest), async function* (source) {
+                for await (const chunk of source) fileHash.update(chunk);
+            });
+            if (fileHash.digest('hex') === hash) {
+                needsDownload = false; 
             }
-
-            if (!needsDownload) {
-                completed++;
-                downloadedBytes += obj.size;
-                consecutiveFailures = 0;
-                if (onProgress && completed % 100 === 0) {
-                    onProgress({ task: Math.floor(downloadedBytes / 1048576), total: Math.ceil(totalBytes / 1048576) });
-                }
-                continue;
-            }
+        } catch (err) {
+                        // Если файл заблокирован (EBUSY) или нет прав — качаем заново
+                        needsDownload = true;
+        }
+    }
+}                    
 
             let success = false;
             let retries = 0;
