@@ -12,7 +12,7 @@ const cfg = {
   brand: "Farcipal",
   largeImage: "farcipal",            // ключ картинки из Rich Presence → Art Assets
   statusDisplayType: 2,              // 0 = имя приложения, 1 = state, 2 = details: в списке участников «Playing <details>»
-  button: { label: "Скачать лаунчер", url: "https://github.com/apomous/farсipal-launcher" },   // null = без кнопки
+  button: { label: "Скачать лаунчер", url: "https://github.com/apomous/farcipal-launcher" },   // null = без кнопки
   showIdle: true,                   // показывать «В лаунчере», пока игра не запущена
   retryMs: 15000,
   paths: null,                       // для тестов: свои пути к каналу
