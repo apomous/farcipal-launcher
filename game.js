@@ -385,5 +385,4 @@ async function installAndLaunch(opts, hooks, deps) {
   if (hooks.cancel && hooks.cancel.cancelled) { try { proc.kill(); } catch {} checkCancel(hooks); }   // отменили в момент старта
   return { proc, versionId };
 }
-
 module.exports = { installAndLaunch, javaMajor, fallbackJava };

@@ -200,7 +200,6 @@ function buildAuth(mode, name) {
 }
 
 // ---------- запуск ----------
-const send = (ch, data) => win && !win.isDestroyed() && win.webContents.send(ch, data);
 
 // магазин модов и ресурспаков: IPC store:* живёт в modrinth.js
 modrinth.register(ipcMain, { gameDir, shell, send });
