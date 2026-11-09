@@ -486,7 +486,7 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
     tilt = lerp(tilt, clamp(eye.vx * 0.008, -7, 7), damp(dt, 6));
 
     updateThreads(dt);
-    draw(now);
+    draw(now,dt);
   }
 
   // ---------- живая сеть: нити с жизненным циклом ----------
@@ -987,7 +987,7 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
     drawRoots();
   }
 
-  function draw(now) {
+  function draw(now,dt) {
     // --- тело ---
     const sc = cur.sc, sx = 1 - 0.24 * sqz, sy = 1 + 0.16 * sqz;
          // --- ЭФФЕКТ КРАСИВОГО ПОЯВЛЕНИЯ (ПРОБУЖДЕНИЯ) ---
