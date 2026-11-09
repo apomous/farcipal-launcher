@@ -68,8 +68,8 @@
   const settings = await L.settings.get();
   ram.value = settings.memory; ramOut.textContent = `${settings.memory} ГБ`;
   snap.checked = settings.snapshots; join.checked = settings.joinServer;
-  conc.value = settings.concurrency || 4;
-  concOut.textContent = conc.value;
+  conc.value = (settings.concurrency === 0) ? 17 : (settings.concurrency || 4);
+  concOut.textContent = (conc.value == 17) ? "∞" : conc.value;
     // Восстанавливаем состояние FARCOP
   const isCompanionEnabled = settings.companion !== false; // По умолчанию true
   companionToggle.checked = isCompanionEnabled;
@@ -82,11 +82,13 @@
     memory: Number(ram.value), version: ver.value, snapshots: snap.checked,
     joinServer: join.checked, demoName: q.value.trim(), loaderType: loader.value, loaderVersion: loaderVer.value,
     companion: companionToggle.checked, discord: discordToggle.checked,
-    concurrency: Number(conc.value)
+    concurrency: Number(conc.value) == 17 ? 0 : Number(conc.value)
   });
   ram.addEventListener("input", () => { ramOut.textContent = `${ram.value} ГБ`; });
   ram.addEventListener("change", save);
-  conc.addEventListener("input", () => { concOut.textContent = conc.value; });
+    conc.addEventListener("input", () => { 
+    concOut.textContent = (conc.value == 17) ? "∞" : conc.value; 
+  });
   conc.addEventListener("change", save);
   join.addEventListener("change", save);
   ver.addEventListener("change", () => { save(); fillLoaderVersions(); });

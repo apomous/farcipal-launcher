@@ -84,7 +84,9 @@ const versionJson = (gameDir, id) => path.join(gameDir, "versions", id, id + ".j
  * возвращает { proc, versionId }
  */
 async function installAndLaunch(opts, hooks, deps) {
-  const { gameDir, mcVersion, loaderType = "vanilla", loaderVersion, javaPath = "java", memoryGB = 4, auth, server, concurrency = 4} = opts;
+    const { gameDir, mcVersion, loaderType = "vanilla", loaderVersion, javaPath = "java", memoryGB = 4, auth, server, concurrency: rawConcurrency = 4} = opts;
+  // 0 означает "безлимит" (из ползунка на 17), ставим 64 потока
+  const concurrency = rawConcurrency === 0 ? 64 : rawConcurrency;
   const { core, inst } = deps && deps.core ? deps : await loadXmcl();
   console.log("Доступные функции в inst:", Object.keys(inst));
   const getJava = (deps && deps.javaMajor) || javaMajor;

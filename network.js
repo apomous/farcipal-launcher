@@ -1,7 +1,7 @@
 const { Agent } = require('undici');
 
 const finalDispatcher = new Agent({
-  connections: 8, 
+  connections: 64, 
   pipelining: 1,
   headersTimeout: 30_000, 
   bodyTimeout: 60_000,
