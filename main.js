@@ -19,7 +19,7 @@ const launchLog = path.join(gameDir, "launcher-last.log");   // полный ж�
 
 let win = null;
 let game = null;
-const abortController = new AbortController();
+const appAbortController = new AbortController();
 const send = (ch, data) => win && !win.isDestroyed() && win.webContents.send(ch, data); // { proc, cancel } пока игра устанавливается, запускается или работает
 
 // ---------- файлы настроек ----------
@@ -96,7 +96,7 @@ updater.init({ send, log: console.log, isGameRunning: () => !!game });
 discord.init({ clientId: config.discordClientId, enabled: getSettings().discord !== false, brand: "Farcipal" });
 });
 app.on("before-quit", () => {
-  abortController.abort(); // <--- ДОБАВИТЬ
+  bortController.abort(); // <--- ДОБАВИТЬ
   discord.destroy();
 });
 app.on("window-all-closed", () => app.quit());
@@ -207,7 +207,7 @@ function buildAuth(mode, name) {
 // ---------- запуск ----------
 
 // магазин модов и ресурспаков: IPC store:* живёт в modrinth.js
-modrinth.register(ipcMain, { gameDir, shell, send, signal: abortController.signal });
+modrinth.register(ipcMain, { gameDir, shell, send, signal: appAbortController.signal });
 
 ipcMain.handle("game:play", async (_e, opts) => {
   if (game) return { ok: false, error: "Игра уже запущена" };
@@ -220,13 +220,14 @@ ipcMain.handle("game:play", async (_e, opts) => {
   const log = (m) => { send("game:log", { text: String(m) }); try { fs.appendFileSync(launchLog, m + "\n"); } catch {} };
   try { fs.mkdirSync(gameDir, { recursive: true }); fs.writeFileSync(launchLog, `# ${new Date().toISOString()} ${version} ${loaderType} ${loaderVersion}\n`); } catch {}
 
-  game = { proc: null, cancel: { cancelled: false, task: null } };   // занимаем слот: двойной запуск невозможен; cancel — для кнопки «Остановить»
+  game = { proc: null, cancel: { cancelled: false, task: null }, abortController: new AbortController() };   // занимаем слот: двойной запуск невозможен; cancel — для кнопки «Остановить»
   try {
     const { proc, versionId } = await installAndLaunch(
       {
         gameDir, mcVersion: version, loaderType, loaderVersion, memoryGB: memory, auth,
         server: joinServer && config.server.host ? { host: config.server.host, port: config.server.port } : null,
-        concurrency
+        concurrency,
+        signal: game.abortController.signal
       },
       { log, progress: (p) => send("game:progress", p), state: (s) => send("game:state", { state: s }), cancel: game.cancel }
     );
@@ -267,7 +268,8 @@ ipcMain.handle("game:play", async (_e, opts) => {
 
 ipcMain.handle("game:stop", () => {
   if (!game) return true;
-  game.cancel.cancelled = true;                         // установка остановится на ближайшей границе этапа
+  game.cancel.cancelled = true; 
+  if (game.abortController) game.abortController.abort();                        // установка остановится на ближайшей границе этапа
   try { if (game.cancel.task && game.cancel.task.cancel) game.cancel.task.cancel(); } catch {}   // и скачивание прервётся сразу
   if (game.proc) game.proc.kill();
   return true;
