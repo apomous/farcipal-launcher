@@ -16,7 +16,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9         # поставь свою мажорную версию pnpm (pnpm -v)
+          version: 10         # поставь свою мажорную версию pnpm (pnpm -v)
 
       - uses: actions/setup-node@v4
         with:
