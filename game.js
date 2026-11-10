@@ -128,30 +128,54 @@ async function installAndLaunch(opts, hooks, deps) {
   
     // 1) базовая ванильная версия: качаем JSON и JAR руками, без @xmcl (чтобы не качал ассеты)
   hooks.state("loading");
-  if (!exists(versionJson(gameDir, mcVersion))) {
+  const vDir = path.join(gameDir, "versions", mcVersion);
+  const versionJsonPath = path.join(vDir, `${mcVersion}.json`);
+  let versionData = null;
+
+  // Всегда читаем (или скачиваем) JSON
+  if (!exists(versionJsonPath)) {
     hooks.log(`качаю метаданные Minecraft ${mcVersion}`);
     const list = await inst.getVersionList();
     checkCancel(hooks);
     const meta = list.versions.find((v) => v.id === mcVersion);
     if (!meta) throw new Error(`Версия ${mcVersion} не найдена в манифесте Mojang`);
     
-    // Качаем JSON версии
     const res = await fetch(meta.url, { dispatcher: farcipalAgent, signal });
     if (!res.ok) throw new Error(`HTTP ${res.status} при скачивании JSON`);
-    const versionData = await res.json();
+    versionData = await res.json();
     
-    const vDir = path.join(gameDir, "versions", mcVersion);
     fs.mkdirSync(vDir, { recursive: true });
-    fs.writeFileSync(path.join(vDir, `${mcVersion}.json`), JSON.stringify(versionData, null, 2));
+    fs.writeFileSync(versionJsonPath, JSON.stringify(versionData, null, 2));
+  } else {
+    versionData = JSON.parse(fs.readFileSync(versionJsonPath, 'utf8'));
+  }
+
+  // Всегда проверяем JAR (если он есть на диске)
+  if (versionData.downloads && versionData.downloads.client) {
+    const jarPath = path.join(vDir, `${mcVersion}.jar`);
+    const expectedSha1 = versionData.downloads.client.sha1;
+    const jarUrl = versionData.downloads.client.url;
     
-    // Качаем сам клиентский jar
-    if (versionData.downloads && versionData.downloads.client) {
+    let needsJarDownload = !exists(jarPath);
+    
+    if (!needsJarDownload) {
+      // Проверяем SHA1 существующего JAR
+      const crypto = require('crypto');
+      const fileBuffer = fs.readFileSync(jarPath);
+      const actualSha1 = crypto.createHash('sha1').update(fileBuffer).digest('hex');
+      
+      if (actualSha1 !== expectedSha1) {
+        hooks.log(`JAR повреждён (ожидался ${expectedSha1.slice(0, 8)}..., получен ${actualSha1.slice(0, 8)}...). Перекачиваю...`);
+        needsJarDownload = true;
+      }
+    }
+    
+    if (needsJarDownload) {
       hooks.log(`качаю client.jar для ${mcVersion}`);
-      const jarUrl = versionData.downloads.client.url;
       const jarRes = await fetch(jarUrl, { dispatcher: farcipalAgent, signal });
       if (!jarRes.ok) throw new Error(`HTTP ${jarRes.status} при скачивании JAR`);
       const jarBuffer = await jarRes.arrayBuffer();
-      fs.writeFileSync(path.join(vDir, `${mcVersion}.jar`), Buffer.from(jarBuffer));
+      fs.writeFileSync(jarPath, Buffer.from(jarBuffer));
     }
   }
       
@@ -180,7 +204,8 @@ async function installAndLaunch(opts, hooks, deps) {
   await ensureAssets(gameDir, assetIndexId, concurrency, (p) => hooks.progress({ type: "файлы " + mcVersion, ...p }), hooks);
   
   // Теперь отдаем это @xmcl, он проверит за секунду и перейдет к библиотекам
-  const base = await ensureDeps(mcVersion, "файлы " + mcVersion);       // докачает недостающее и битое, лишнего не трогает
+  const base = await ensureDeps(mcVersion, "файлы " + mcVersion);
+       // докачает недостающее и битое, лишнего не трогает
     const need = (base.javaVersion && base.javaVersion.majorVersion) || fallbackJava(mcVersion);
   let actualJavaPath = javaPath;
   let have = getJava(actualJavaPath);
