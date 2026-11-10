@@ -84,7 +84,7 @@ const versionJson = (gameDir, id) => path.join(gameDir, "versions", id, id + ".j
  * возвращает { proc, versionId }
  */
 async function installAndLaunch(opts, hooks, deps) {
-    const { gameDir, mcVersion, loaderType = "vanilla", loaderVersion, javaPath = "java", memoryGB = 4, auth, server, concurrency: rawConcurrency = 4} = opts;
+    const { gameDir, mcVersion, loaderType = "vanilla", loaderVersion, javaPath = "java", memoryGB = 4, auth, server, concurrency: rawConcurrency = 4, signal } = opts;
   // 0 означает "безлимит" (из ползунка на 17), ставим 64 потока
   const concurrency = rawConcurrency === 0 ? 64 : rawConcurrency;
   const { core, inst } = deps && deps.core ? deps : await loadXmcl();
@@ -136,7 +136,7 @@ async function installAndLaunch(opts, hooks, deps) {
     if (!meta) throw new Error(`Версия ${mcVersion} не найдена в манифесте Mojang`);
     
     // Качаем JSON версии
-    const res = await fetch(meta.url, { dispatcher: farcipalAgent });
+    const res = await fetch(meta.url, { dispatcher: farcipalAgent, signal });
     if (!res.ok) throw new Error(`HTTP ${res.status} при скачивании JSON`);
     const versionData = await res.json();
     
@@ -148,7 +148,7 @@ async function installAndLaunch(opts, hooks, deps) {
     if (versionData.downloads && versionData.downloads.client) {
       hooks.log(`качаю client.jar для ${mcVersion}`);
       const jarUrl = versionData.downloads.client.url;
-      const jarRes = await fetch(jarUrl, { dispatcher: farcipalAgent });
+      const jarRes = await fetch(jarUrl, { dispatcher: farcipalAgent, signal });
       if (!jarRes.ok) throw new Error(`HTTP ${jarRes.status} при скачивании JAR`);
       const jarBuffer = await jarRes.arrayBuffer();
       fs.writeFileSync(path.join(vDir, `${mcVersion}.jar`), Buffer.from(jarBuffer));
@@ -167,7 +167,7 @@ async function installAndLaunch(opts, hooks, deps) {
     
     if (!fs.existsSync(indexPath)) {
       hooks.log(`качаю индекс ассетов ${assetIndex.id}...`);
-      const indexRes = await fetch(assetIndex.url, { dispatcher: farcipalAgent });
+      const indexRes = await fetch(assetIndex.url, { dispatcher: farcipalAgent, signal });
       if (!indexRes.ok) throw new Error(`HTTP ${indexRes.status} при скачивании индекса`);
       const indexData = await indexRes.text();
       fs.writeFileSync(indexPath, indexData);
@@ -177,7 +177,7 @@ async function installAndLaunch(opts, hooks, deps) {
   // Если ID нет (очень старые версии), используем 'legacy'
   const assetIndexId = (parsedBase.assetIndex && parsedBase.assetIndex.id) ? parsedBase.assetIndex.id : 'legacy';
   hooks.log(`Проверяю и докачиваю ассеты (индекс: ${assetIndexId})...`);
-  await ensureAssets(gameDir, assetIndexId, concurrency, (p) => hooks.progress({ type: "файлы " + mcVersion, ...p })); 
+  await ensureAssets(gameDir, assetIndexId, concurrency, (p) => hooks.progress({ type: "файлы " + mcVersion, ...p }), hooks);
   
   // Теперь отдаем это @xmcl, он проверит за секунду и перейдет к библиотекам
   const base = await ensureDeps(mcVersion, "файлы " + mcVersion);       // докачает недостающее и битое, лишнего не трогает
@@ -228,7 +228,7 @@ async function installAndLaunch(opts, hooks, deps) {
         let downloadUrl = null;
         const apiUrl = `https://api.adoptium.net/v3/assets/latest/${need}/hotspot?architecture=x64&image_type=jdk&os=windows`;
         try {
-          const apiRes = await fetch(apiUrl, { dispatcher: farcipalAgent });
+          const apiRes = await fetch(apiUrl, { dispatcher: farcipalAgent, signal });
           if (!apiRes.ok) throw new Error(`HTTP ${apiRes.status}`);
           const apiData = await apiRes.json();
           
@@ -249,7 +249,7 @@ async function installAndLaunch(opts, hooks, deps) {
        
         
         // Скачиваем архив
-        const zipRes = await fetch(downloadUrl, { dispatcher: farcipalAgent });
+        const zipRes = await fetch(downloadUrl, { dispatcher: farcipalAgent, signal });
         if (!zipRes.ok) throw new Error(`HTTP ${zipRes.status} при скачивании архива`);
         const zipBuffer = await zipRes.arrayBuffer();
         

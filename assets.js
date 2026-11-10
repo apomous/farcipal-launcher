@@ -5,7 +5,7 @@ const { fetch } = require('undici');
 const { pipeline } = require('stream/promises');
 const { farcipalAgent } = require('./network');
 
-async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress) {
+async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress, hooks) {
     const indexFile = path.join(gameDir, 'assets', 'indexes', indexId + '.json');
     const outputDir = path.join(gameDir, 'assets', 'objects');
 
@@ -23,6 +23,10 @@ async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress) {
 
     async function worker() {
          while (index < objects.length && !isAborted) {
+            if (hooks && hooks.cancel && hooks.cancel.cancelled) {
+              isAborted = true;
+              throw new Error("Отменено");
+            }
             const obj = objects[index++];
             const hash = obj.hash;
             const prefix = hash.substring(0, 2);
