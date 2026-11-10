@@ -47,11 +47,11 @@
       "**/node_modules/7zip-bin/**"
     ],
     "extraResources": [
-     {
-      "from": "vendor/easytier",
-      "to": "easytier"
-     }
-  ],
+      {
+        "from": "vendor/easytier",
+        "to": "easytier"
+      }
+    ],
     "win": {
       "target": [
         {
@@ -63,7 +63,6 @@
       ],
       "icon": "build/icon.ico"
     },
-
     "nsis": {
       "artifactName": "Farcipal_Setup_${version}.exe",
       "oneClick": false,
@@ -79,11 +78,6 @@
       "uninstallerIcon": "build/icon.ico",
       "uninstallDisplayName": "Farcipal"
     },
-      "pnpm": {
-    "patchedDependencies": {
-      "@xmcl/unzip@2.2.0": "patches/@xmcl__unzip@2.2.0.patch"
-    }
-    },
     "publish": [
       {
         "provider": "github",
@@ -92,6 +86,10 @@
         "releaseType": "draft"
       }
     ]
-   
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "@xmcl/unzip@2.2.0": "patches/@xmcl__unzip@2.2.0.patch"
+    }
   }
 }
