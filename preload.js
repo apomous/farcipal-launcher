@@ -17,20 +17,30 @@ contextBridge.exposeInMainWorld("launcher", {
   storeInstall: (o) => ipcRenderer.invoke("store:install", o),
   storeRemove: (o) => ipcRenderer.invoke("store:remove", o),
   storeFolder: (o) => ipcRenderer.invoke("store:folder", o),
+   // апдейтер
   updateState: () => ipcRenderer.invoke("update:state"),
   updateInstall: () => ipcRenderer.invoke("update:install"),
-  appVersion: () => ipcRenderer.invoke("app:version"),
+  appVersion: () => ipcRenderer.invoke("app:version"),  
+   // тунель 
+  tunnelJoin: (code, playerName) => ipcRenderer.invoke('tunnel:join', code, playerName),
+  tunnelClose: () => ipcRenderer.invoke('tunnel:close'),
+  tunnelHost: (playerName) => ipcRenderer.invoke('tunnel:host', playerName),
+  
 
   settings: { get: () => ipcRenderer.invoke("settings:get"), set: (s) => ipcRenderer.invoke("settings:set", s) },
   win: (action) => ipcRenderer.send("win:" + action),
   on: (channel, fn) => {
-    const allowed = ["game:log", "game:progress", "game:state", "store:progress", "update:status"];
+    const allowed = ["game:log", "game:progress", "game:state", "store:progress", "update:status","tunnel:code", "tunnel:error", "tunnel:player-join", "tunnel:player-leave", "tunnel:closed"];
     if (!allowed.includes(channel)) return;
     const wrapped = (_e, data) => fn(data);
     wrappers.set(fn, wrapped);
     ipcRenderer.on(channel, wrapped);
   },
   off: (channel, fn) => {
+     const allowed = [
+      "game:log", "game:progress", "game:state", 
+      "store:progress", "update:status", 
+      "tunnel:code", "tunnel:error", "tunnel:player-join", "tunnel:player-leave", "tunnel:closed"];
   if (!allowed.includes(channel)) return;
   const wrapped = wrappers.get(fn);
   if (wrapped) {

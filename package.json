@@ -16,10 +16,11 @@
     "@xmcl/core": "^2.12.0",
     "@xmcl/installer": "^5.4.0",
     "@xmcl/unzip": "2.2.0",
+    "electron-updater": "6.8.11",
     "lzma-native": "^8.0.6",
+    "mc-tunnel": "^0.2.3",
     "msmc": "^5.0.5",
-    "undici": "^6.21.0",
-    "electron-updater": "6.8.11"
+    "undici": "^6.21.0"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -30,16 +31,39 @@
     "appId": "dev.farcipal.launcher",
     "productName": "Farcipal",
     "copyright": "Copyright © 2026 apomous",
-    "directories": { "buildResources": "build", "output": "dist" },
-    "files": ["**/*", "!dist/**", "!.github/**", "!**/*.md", "!**/*.map"],
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!dist/**",
+      "!.github/**",
+      "!**/*.md",
+      "!**/*.map"
+    ],
     "asar": true,
     "asarUnpack": [
       "**/node_modules/7zip-bin/**"
     ],
+    "extraResources": [
+     {
+      "from": "vendor/easytier",
+      "to": "easytier"
+     }
+  ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "build/icon.ico"
     },
+
     "nsis": {
       "artifactName": "Farcipal_Setup_${version}.exe",
       "oneClick": false,
@@ -65,5 +89,3 @@
     ]
   }
 }
-    
-

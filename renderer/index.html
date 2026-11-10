@@ -25,6 +25,7 @@
         <div class="tab-indicator" id="tabIndicator"></div>
         <button class="tab active" data-target="play">ИГРАТЬ</button>
         <button class="tab" data-target="store">МАГАЗИН</button>
+        <button class="tab" data-target="network">СЕТЬ</button>
         <button class="tab" data-target="settings">НАСТРОЙКИ</button>
       </div>
 
@@ -124,6 +125,54 @@
       <p class="section-label">журнал</p>
       <div class="log" id="log"></div>
     </section>
+    <section class="panel network" data-view="network">
+  <div class="network-container">
+    
+    <!-- ЭКРАН 1: ВЫБОР -->
+    <div id="netStart" class="net-view">
+      <h2 class="net-title">ТУНЕЛЬ<span>P2P SaaS проект</span></h2>
+      <p class="net-desc">Игра с друзьями без серверов. Соединение напрямую.</p>
+      
+      <button class="btn-neon" id="btnCreateRoom">СОЗДАТЬ КОМНАТУ</button>
+      
+      <div class="net-divider"><span>ИЛИ</span></div>
+      
+      <div class="net-join-wrap">
+        <input type="text" id="joinCodeInput" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="19" spellcheck="false" autocomplete="off">
+        <button class="btn-neon small" id="btnJoinRoom">ВОЙТИ</button>
+      </div>
+    </div>
+
+    <!-- ЭКРАН 2: ХОСТ -->
+    <div id="netHost" class="net-view hidden">
+      <p class="net-desc text-green">Комната создана! Отправьте код другу:</p>
+      <div class="room-code-box" id="hostRoomCode" title="Нажмите, чтобы скопировать">----</div>
+      <p class="net-hint" id="hostStatus">Ожидание игроков...</p>
+      
+      <div class="players-list-wrap">
+        <p class="section-label">В СЕТИ:</p>
+        <ul id="tunnelPlayersList" class="players-list"></ul>
+      </div>
+      <button class="btn-neon danger" id="btnStopHost">ЗАКРЫТЬ КОМНАТУ</button>
+    </div>
+
+    <!-- ЭКРАН 3: ГОСТЬ -->
+    <div id="netGuest" class="net-view hidden">
+      <p class="net-desc text-yellow" id="guestStatus">Подключение к комнате...</p>
+      <div class="loader-ring" id="guestLoader"></div>
+      
+      <div id="guestSuccess" class="hidden">
+        <p class="net-desc text-green">Успешно подключено!</p>
+        <p class="net-hint">Заходите в Minecraft &rarr; Сетевая игра</p>
+        <div class="room-code-box" id="guestAddress">127.0.0.1:25565</div>
+        <button class="btn-neon danger" id="btnStopGuest">ОТКЛЮЧИТЬСЯ</button>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+   
   </main>
 
   <canvas id="web" aria-hidden="true"></canvas>
@@ -334,7 +383,7 @@
 <script src="companion.js"></script>
 <script src="store.js"></script>
 <script src="update.js"></script>
-<script src="app.js"></script>\
+<script src="app.js"></script>
 
 
 </body>

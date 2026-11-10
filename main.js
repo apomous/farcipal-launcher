@@ -8,6 +8,7 @@ const loaders = require("./loaders");
 const modrinth = require("./modrinth");
 const discord = require("./discord");
 const { installAndLaunch } = require("./game");
+const { createHostInElectron, manageSessions, createGuestInElectron } = require('mc-tunnel/electron');
 
 
 
@@ -102,13 +103,14 @@ updater.init({ send, log: console.log, isGameRunning: () => !!game });
 discord.init({ clientId: config.discordClientId, enabled: getSettings().discord !== false, brand: "Farcipal" });
 });
 app.on("before-quit", () => {
-  appAbortController.abort(); // <--- ДОБАВИТЬ
+  appAbortController.abort(); 
   discord.destroy();
 });
 app.on("window-all-closed", () => app.quit());
 
 ipcMain.on("win:min", () => win && win.minimize());
 ipcMain.on("win:close", () => win && win.close());
+
 
 // ---------- конфиг, настройки ----------
 ipcMain.handle("config:get", () => ({
@@ -294,5 +296,57 @@ ipcMain.handle("news:get", async () => {
     console.warn("Не удалось загрузить новости:", e.message);
     // Фолбэк: если сети нет, берем новости из config.js
     return config.news || [];
+  }
+});
+
+
+
+let tunnelSession = null; // Храним текущую сессию (хост или гость)
+
+
+ 
+// --- Хостинг (Создать комнату) ---
+ipcMain.handle('tunnel:host', async (event, playerName) => {
+  try {
+    if (tunnelSession) throw new Error('Сессия уже запущена');
+    
+    // Указываем путь к бинарникам EasyTier
+    const binDir = path.join(__dirname, 'vendor', 'easytier');
+    
+    const host = await createHostInElectron(app, { 
+      playerName: playerName || 'Host',
+      easyTier: { binDir } // <--- ДОБАВЛЕНА ЭТА СТРОКА
+    });
+    tunnelSession = host;
+    manageSessions(app, host);
+    
+    send('tunnel:code', host.roomCode);
+    host.on('player-join', (p) => send('tunnel:player-join', p.name));
+    host.on('player-leave', (p) => send('tunnel:player-leave', p.name));
+    host.on('error', (e) => send('tunnel:error', e.message));
+
+    return { ok: true, roomCode: host.roomCode };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+// --- Подключение (Присоединиться) ---
+ipcMain.handle('tunnel:join', async (event, roomCode, playerName) => {
+  try {
+    if (tunnelSession) throw new Error('Сессия уже запущена');
+    
+    const binDir = path.join(__dirname, 'vendor', 'easytier'); // <--- ТОТ ЖЕ ПУТЬ
+    
+    const guest = await createGuestInElectron(app, { 
+      roomCode,
+      playerName: playerName || 'Guest',
+      easyTier: { binDir } // <--- ДОБАВЛЕНА ЭТА СТРОКА
+    });
+    tunnelSession = guest;
+    manageSessions(app, guest);
+    return { ok: true, address: guest.address };
+  } catch (e) {
+    return { ok: false, error: e.message };
   }
 });

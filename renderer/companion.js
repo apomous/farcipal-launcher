@@ -279,6 +279,8 @@
   const rectOf = (el) => { const r = el.getBoundingClientRect(); return { left: r.left - shakeX, top: r.top - shakeY, right: r.right - shakeX, bottom: r.bottom - shakeY, width: r.width, height: r.height }; };
   function readRects() {
     if (els.play) btnRect = slamS ? btnRect : rectOf(els.play);
+    const r = rectOf(els.play);
+    btnRect = (r.width > 0 && !slamS) ? r : null;
     if (els.progress) progRect = rectOf(els.progress);
   }
   let homeFn = null;
@@ -296,7 +298,9 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
   function pickMode(now) {
     if (mode === "slam" || mode === "recoil" || mode === "error") return;
     if (document.body.dataset.mode === "store") { mode = "store"; return; }
+    if (document.body.dataset.mode === "network") { mode = "network"; return; }
     if (wantLoading) mode = "loading";
+    
     else if (running) mode = "sleep";
     else if (hovering && hoverable && btnRect) mode = "hover";
     else if (now - mouse.lastMove > 10000) mode = "sleep";
@@ -456,8 +460,12 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
         } else if (mode === "store") {
             const T = home(); // Берет координаты угла из store.js
             spring(T.x + bob.x * 0.3, T.y + bob.y * 0.3, 15, 0.8, dt);
-      // gazeAt по умолчанию смотрит на мышку, так что зрачок будет следить за курсором
-    }
+        } else if (mode === "network"){
+            const T = { x: W / 2, y: 130 };
+            spring(T.x + bob.x * 0.5, T.y + bob.y * 0.5, 15, 0.8, dt);
+            px = 0.8; py = 1.1; lid = 0.9;
+          }
+          
     }
 
     pinT = pin ? Math.min(1, pinT + dt * 2.2) : 0;
@@ -891,7 +899,7 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
     // чего хотим: зацепиться за кнопку или «исследовать» элемент под курсором
     const anch = hoverAnchors();
     const hoverMode = (mode === "hover" || mode === "slam") && !!anch;
-    const capActive = !hoverMode && (mode === "follow" || mode === "store") && !!capRect && sc > 0.9;
+    const capActive = !hoverMode && (mode === "follow" || mode === "store" || mode === "network") && !!capRect && sc > 0.9;
     const want = hoverMode ? "play" : capActive ? "cap" : null;
     if (want !== lastWant) { if (want) capAge = 0; else leaveAge = 0; lastWant = want; }
     if (want) { capAge += dt; leaveAge = 0; } else { leaveAge += dt; capAge = 0; }
@@ -1111,6 +1119,9 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
       else if (name === "running") { wantLoading = false; running = true; flash = 0.7; ring(); if (mode !== "slam" && mode !== "recoil") mode = "follow"; }
       else if (name === "error") fail();
       else { wantLoading = false; running = false; mouse.lastMove = performance.now(); }
+    },
+    setTargets(selector){
+      els.targets = selector;
     },
         setVisible(v) {
       isHidden = !v;

@@ -6,3 +6,5 @@ shamefullyHoist: true
 allowBuilds:
   electron: true
   lzma-native: true
+patchedDependencies:
+  '@xmcl/unzip@2.2.0': patches/@xmcl__unzip@2.2.0.patch

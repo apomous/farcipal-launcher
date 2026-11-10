@@ -325,6 +325,13 @@ if (bad || !game) log(text.slice(0, 200), bad ? "err" : "");
       // Меняем режим у body (это включит нужные CSS-стили)
       const target = tab.dataset.target;
       document.body.dataset.mode = target;
+            if (target === "network") {
+        // На вкладке сети глаз цепляется за код комнаты и список игроков
+        C.setTargets(".tab, .room-code-box, .players-list li");
+      } else {
+        // На остальных вкладках — за стандартные элементы
+        C.setTargets(".panel, .card, .play, .tab, .brand, .scard");
+      }
       if (uiState === "idle" || uiState === "error") C.phase("idle");   // будим глаз, но не сбрасываем загрузку
     });
   });
@@ -352,5 +359,108 @@ if (bad || !game) log(text.slice(0, 200), bad ? "err" : "");
     if (companionToggle.checked && uiState !== 'running') {
       C.setVisible(true);
     }
+  });
+  // --- ЛОГИКА ВКЛАДКИ СЕТЬ ---
+  const netStart = $("netStart"), netHost = $("netHost"), netGuest = $("netGuest");
+  const btnCreateRoom = $("btnCreateRoom"), btnJoinRoom = $("btnJoinRoom");
+  const joinCodeInput = $("joinCodeInput");
+  const hostRoomCode = $("hostRoomCode"), tunnelPlayersList = $("tunnelPlayersList");
+  const guestStatus = $("guestStatus"), guestLoader = $("guestLoader"), guestSuccess = $("guestSuccess"), guestAddress = $("guestAddress");
+
+  // Создание комнаты (Хост)
+  btnCreateRoom.addEventListener("click", async () => {
+    const playerName = account ? account.name : (q.value.trim() || "Host");
+    btnCreateRoom.textContent = "СОЗДАНИЕ...";
+    btnCreateRoom.disabled = true;
+
+    const res = await L.tunnelHost(playerName);
+    
+    btnCreateRoom.textContent = "СОЗДАТЬ КОМНАТУ";
+    btnCreateRoom.disabled = false;
+
+    if (res.ok) {
+      netStart.classList.add("hidden");
+      netHost.classList.remove("hidden");
+      hostRoomCode.textContent = res.roomCode;
+      
+      // Глаз цепляется за код и список
+      C.setTargets(".tab, .room-code-box, .players-list li");
+      C.phase("running");
+    } else {
+      alert("Ошибка: " + res.error);
+    }
+  });
+
+  // Копирование кода
+  hostRoomCode.addEventListener("click", () => {
+    navigator.clipboard.writeText(hostRoomCode.textContent);
+    const old = hostRoomCode.textContent;
+    hostRoomCode.textContent = "СКОПИРОВАНО!";
+    setTimeout(() => hostRoomCode.textContent = old, 1500);
+  });
+
+  // Подключение (Гость)
+  btnJoinRoom.addEventListener("click", async () => {
+    const code = joinCodeInput.value.trim();
+    if (code.length < 10) return alert("Введите корректный код!");
+
+    const playerName = account ? account.name : (q.value.trim() || "Guest");
+
+    netStart.classList.add("hidden");
+    netGuest.classList.remove("hidden");
+    guestStatus.textContent = "Ищем хоста...";
+    guestSuccess.classList.add("hidden");
+    guestLoader.classList.remove("hidden");
+
+    const res = await L.tunnelJoin(code, playerName);
+
+    if (res.ok) {
+      guestStatus.classList.add("hidden");
+      guestLoader.classList.add("hidden");
+      guestSuccess.classList.remove("hidden");
+      guestAddress.textContent = res.address;
+      C.setTargets(".tab, .room-code-box");
+      C.slam().then(() => C.phase("running")); // Глаз бьет по адресу
+    } else {
+      guestStatus.textContent = "Ошибка: " + res.error;
+      guestStatus.classList.add("text-yellow");
+      guestLoader.classList.add("hidden");
+      setTimeout(() => {
+        netGuest.classList.add("hidden");
+        netStart.classList.remove("hidden");
+      }, 3000);
+    }
+  });
+
+  // Закрытие сессии (Хост или Гость)
+  const stopTunnel = async () => {
+    await L.tunnelClose();
+    netHost.classList.add("hidden");
+    netGuest.classList.add("hidden");
+    netStart.classList.remove("hidden");
+    tunnelPlayersList.innerHTML = "";
+    joinCodeInput.value = "";
+    C.phase("idle");
+    C.setTargets(".panel, .card, .play, .tab, .brand, .scard");
+  };
+
+  $("btnStopHost").addEventListener("click", stopTunnel);
+  $("btnStopGuest").addEventListener("click", stopTunnel);
+
+  // События из main.js
+  L.on("tunnel:player-join", (name) => {
+    const li = document.createElement("li");
+    li.textContent = name;
+    li.id = "player-" + name;
+    tunnelPlayersList.appendChild(li);
+  });
+
+  L.on("tunnel:player-leave", (name) => {
+    const li = document.getElementById("player-" + name);
+    if (li) li.remove();
+  });
+
+  L.on("tunnel:closed", () => {
+    stopTunnel();
   });
 })();

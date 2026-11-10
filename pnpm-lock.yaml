@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@xmcl/unzip@2.2.0': 93997b8fea5ec0bdc2959452c7fe65070e595bbec3c9fb5b105941983a3ffeb8
+
 importers:
 
   .:
@@ -19,13 +22,16 @@ importers:
         version: 5.4.0
       '@xmcl/unzip':
         specifier: 2.2.0
-        version: 2.2.0(@xmcl/yauzl@2.10.0)
+        version: 2.2.0(patch_hash=93997b8fea5ec0bdc2959452c7fe65070e595bbec3c9fb5b105941983a3ffeb8)(@xmcl/yauzl@2.10.0)
       electron-updater:
         specifier: 6.8.11
         version: 6.8.11(supports-color@7.2.0)
       lzma-native:
         specifier: ^8.0.6
         version: 8.0.6
+      mc-tunnel:
+        specifier: ^0.2.3
+        version: 0.2.3
       msmc:
         specifier: ^5.0.5
         version: 5.0.5(encoding@0.1.14)
@@ -1032,6 +1038,10 @@ packages:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
 
+  mc-tunnel@0.2.3:
+    resolution: {integrity: sha512-u8CHSiBuexPpdcOfCdrAN3dhgIEiRLFiqwwDuygVSJNOM6bRMcE9GpLmsF7YuQJlWj9P7/C1zcdmBlAPNa5gvw==}
+    engines: {node: '>=18.17'}
+
   micromatch@4.0.8:
     resolution: {integrity: sha512-PXwfBhYu0hBCPw8Dn0E+WDYb7af3dSLVWKi3HGv84IdF4TyFoC0ysxFd0Goxw7nSv4T/PzEJQxsYsEiFCKo2BA==}
     engines: {node: '>=8.6'}
@@ -1799,7 +1809,7 @@ snapshots:
 
   '@xmcl/core@2.16.3(@xmcl/yauzl@2.10.0)':
     dependencies:
-      '@xmcl/unzip': 2.2.0(@xmcl/yauzl@2.10.0)
+      '@xmcl/unzip': 2.2.0(patch_hash=93997b8fea5ec0bdc2959452c7fe65070e595bbec3c9fb5b105941983a3ffeb8)(@xmcl/yauzl@2.10.0)
     transitivePeerDependencies:
       - '@xmcl/yauzl'
 
@@ -1832,7 +1842,7 @@ snapshots:
       '@types/yauzl': 2.10.3
       yauzl: 2.10.0
 
-  '@xmcl/unzip@2.2.0(@xmcl/yauzl@2.10.0)':
+  '@xmcl/unzip@2.2.0(patch_hash=93997b8fea5ec0bdc2959452c7fe65070e595bbec3c9fb5b105941983a3ffeb8)(@xmcl/yauzl@2.10.0)':
     dependencies:
       '@xmcl/yauzl': 2.10.0
 
@@ -2861,6 +2871,8 @@ snapshots:
     optional: true
 
   math-intrinsics@1.1.0: {}
+
+  mc-tunnel@0.2.3: {}
 
   micromatch@4.0.8:
     dependencies:
