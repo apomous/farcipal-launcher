@@ -9,7 +9,16 @@ const modrinth = require("./modrinth");
 const discord = require("./discord");
 const { installAndLaunch } = require("./game");
 const { createHostInElectron, manageSessions, createGuestInElectron } = require('mc-tunnel/electron');
-
+const zlib = require('zlib');
+function getEasytierBinDir() {
+  if (app.isPackaged) {
+    // В собранном приложении (resources/easytier)
+    return path.join(process.resourcesPath, 'easytier');
+  } else {
+    // В режиме разработки (vendor/easytier)
+    return path.join(__dirname, 'vendor', 'easytier');
+  }
+}
 
 
 const MANIFEST = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
@@ -309,13 +318,10 @@ let tunnelSession = null; // Храним текущую сессию (хост 
 ipcMain.handle('tunnel:host', async (event, playerName) => {
   try {
     if (tunnelSession) throw new Error('Сессия уже запущена');
-    
-    // Указываем путь к бинарникам EasyTier
-    const binDir = path.join(__dirname, 'vendor', 'easytier');
-    
+     const binDir = getEasytierBinDir();
     const host = await createHostInElectron(app, { 
       playerName: playerName || 'Host',
-      easyTier: { binDir } // <--- ДОБАВЛЕНА ЭТА СТРОКА
+      easyTier: { binDir } 
     });
     tunnelSession = host;
     manageSessions(app, host);
@@ -335,17 +341,49 @@ ipcMain.handle('tunnel:host', async (event, playerName) => {
 ipcMain.handle('tunnel:join', async (event, roomCode, playerName) => {
   try {
     if (tunnelSession) throw new Error('Сессия уже запущена');
-    
-    const binDir = path.join(__dirname, 'vendor', 'easytier'); // <--- ТОТ ЖЕ ПУТЬ
-    
+    const binDir = getEasytierBinDir();
     const guest = await createGuestInElectron(app, { 
       roomCode,
       playerName: playerName || 'Guest',
-      easyTier: { binDir } // <--- ДОБАВЛЕНА ЭТА СТРОКА
+      easyTier: { binDir } 
     });
     tunnelSession = guest;
     manageSessions(app, guest);
     return { ok: true, address: guest.address };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+ipcMain.handle('tunnel:close', async () => {
+  if (tunnelSession) {
+    try {
+      await Promise.race([
+          tunnelSession.close(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Таймаут закрытия")), 3000))
+      ]);
+    } catch (e) {
+      console.error("Ошибка при закрытии сессии:", e);
+    }
+    tunnelSession = null;
+    send('tunnel:closed');
+  }
+  return { ok: true };
+});
+ipcMain.handle("modpack:export", (_e, { mc, loader }) => {
+  const manifest = modrinth.exportInstance(gameDir, mc, loader);
+  const zlib = require('zlib');
+  // Сжимаем JSON в Base64, чтобы строка была короткой
+  return zlib.deflateSync(JSON.stringify(manifest)).toString('base64');
+});
+
+ipcMain.handle("modpack:import", async (_e, { mc, loader, code }) => {
+  try {
+    const zlib = require('zlib');
+    const manifest = JSON.parse(zlib.inflateSync(Buffer.from(code, 'base64')).toString());
+    await modrinth.importInstance(gameDir, mc, loader, manifest, (p) => {
+      send("game:log", { text: `Скачивание сборки: ${p.task}/${p.total}` });
+    });
+    return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message };
   }

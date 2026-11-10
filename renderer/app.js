@@ -14,7 +14,7 @@
   const discordToggle = $("discordToggle");
   const conc = $("conc"), concOut = $("concOut");
   C.init({ play, progress, shake: $("shake"), targets: ".panel, .card, .play, .tab, .brand, .scard"});
-
+  
   // ---------- часы ----------
   const tick = () => { const d = new Date(); $("clock").textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
   tick(); setInterval(tick, 1000);
@@ -325,12 +325,16 @@ if (bad || !game) log(text.slice(0, 200), bad ? "err" : "");
       // Меняем режим у body (это включит нужные CSS-стили)
       const target = tab.dataset.target;
       document.body.dataset.mode = target;
-            if (target === "network") {
-        // На вкладке сети глаз цепляется за код комнаты и список игроков
-        C.setTargets(".tab, .room-code-box, .players-list li");
-      } else {
-        // На остальных вкладках — за стандартные элементы
+      if (target === "network") {
+        // Добавили .net-btn-block, чтобы глаз видел главную кнопку
+        C.setTargets(".tab, .net-btn-block, .room-code-box, .players-list li");
+        C.setActionBtn($("btnCreateRoom"))
+      } else if (target === "play") {
         C.setTargets(".panel, .card, .play, .tab, .brand, .scard");
+        C.setActionBtn($("play"));
+      } else {
+        C.setTargets(".panel, .card, .play, .tab, .brand, .scard");
+        C.setActionBtn(null);
       }
       if (uiState === "idle" || uiState === "error") C.phase("idle");   // будим глаз, но не сбрасываем загрузку
     });
@@ -367,23 +371,26 @@ if (bad || !game) log(text.slice(0, 200), bad ? "err" : "");
   const hostRoomCode = $("hostRoomCode"), tunnelPlayersList = $("tunnelPlayersList");
   const guestStatus = $("guestStatus"), guestLoader = $("guestLoader"), guestSuccess = $("guestSuccess"), guestAddress = $("guestAddress");
 
+
+    
   // Создание комнаты (Хост)
   btnCreateRoom.addEventListener("click", async () => {
     const playerName = account ? account.name : (q.value.trim() || "Host");
-    btnCreateRoom.textContent = "СОЗДАНИЕ...";
+    await C.slam(); 
+
+    const btnText = btnCreateRoom.querySelector('.face'); 
+    btnText.textContent = "ПОИСК ИГРЫ...";
     btnCreateRoom.disabled = true;
 
     const res = await L.tunnelHost(playerName);
     
-    btnCreateRoom.textContent = "СОЗДАТЬ КОМНАТУ";
+    btnText.textContent = "СОЗДАТЬ КОМНАТУ";
     btnCreateRoom.disabled = false;
 
     if (res.ok) {
       netStart.classList.add("hidden");
       netHost.classList.remove("hidden");
-      hostRoomCode.textContent = res.roomCode;
-      
-      // Глаз цепляется за код и список
+      hostRoomCode.textContent = res.roomCode;      
       C.setTargets(".tab, .room-code-box, .players-list li");
       C.phase("running");
     } else {
@@ -433,19 +440,42 @@ if (bad || !game) log(text.slice(0, 200), bad ? "err" : "");
   });
 
   // Закрытие сессии (Хост или Гость)
-  const stopTunnel = async () => {
-    await L.tunnelClose();
+    // Функция для сброса интерфейса (мгновенная)
+    const resetTunnelUI = () => {
     netHost.classList.add("hidden");
     netGuest.classList.add("hidden");
     netStart.classList.remove("hidden");
     tunnelPlayersList.innerHTML = "";
     joinCodeInput.value = "";
+    
+    // Ищем span внутри кнопки и меняем текст ТАМ
+    btnCreateRoom.querySelector('.face').textContent = "СОЗДАТЬ КОМНАТУ"; 
+    btnCreateRoom.disabled = false;
     C.phase("idle");
     C.setTargets(".panel, .card, .play, .tab, .brand, .scard");
   };
 
+  // Вызов закрытия (сначала меняем UI, потом убиваем процесс в фоне)
+  const stopTunnel = async () => {
+    resetTunnelUI(); // <--- Сразу показываем, что комната закрыта
+    try {
+      await L.tunnelClose(); // Ждем, пока процесс умрет
+    } catch (e) {
+      log("Ошибка при отключении: " + e.message, "err");
+    }
+  };
+
+  // Привязываем кнопки
   $("btnStopHost").addEventListener("click", stopTunnel);
   $("btnStopGuest").addEventListener("click", stopTunnel);
+
+    // Слушаем событие из main.js (сбрасываем UI)
+  L.on("tunnel:closed", () => {
+    resetTunnelUI(); 
+  });
+  
+
+
 
   // События из main.js
   L.on("tunnel:player-join", (name) => {
@@ -460,7 +490,44 @@ if (bad || !game) log(text.slice(0, 200), bad ? "err" : "");
     if (li) li.remove();
   });
 
-  L.on("tunnel:closed", () => {
-    stopTunnel();
-  });
+  
+  // --- ЭКСПОРТ/ИМПОРТ СБОРКИ ---
+  const btnExport = $("btnExportModpack"), btnImport = $("btnImportModpack");
+
+  if (btnExport) {
+    btnExport.addEventListener("click", async () => {
+      try {
+        const code = await L.exportModpack(ver.value, loader.value);
+        await navigator.clipboard.writeText(code);
+        btnExport.textContent = "СКОПИРОВАНО!";
+        setTimeout(() => btnExport.textContent = "СКОПИРОВАТЬ СБОРКУ", 2000);
+      } catch (e) {
+        alert("Ошибка экспорта: " + e.message);
+      }
+    });
+  }
+
+  if (btnImport) {
+    btnImport.addEventListener("click", async () => {
+      const code = prompt("Вставьте код сборки от хоста:");
+      if (!code) return;
+      
+      btnImport.textContent = "ЗАГРУЗКА...";
+      btnImport.disabled = true;
+      log("Начинаю скачивание сборки хоста...", "info");
+
+      const res = await L.importModpack(ver.value, loader.value, code.trim());
+
+      btnImport.textContent = "ЗАГРУЗИТЬ СБОРКУ ХОСТА";
+      btnImport.disabled = false;
+
+      if (res.ok) {
+        log("Сборка успешно установлена!", "ok");
+        alert("Сборка успешно скачана! Можете запускать игру.");
+      } else {
+        log("Ошибка импорта: " + res.error, "err");
+        alert("Ошибка: " + res.error);
+      }
+    });
+  }
 })();

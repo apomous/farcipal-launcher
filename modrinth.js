@@ -216,5 +216,29 @@ function register(ipcMain, ctx) {
     return dir;
   });
 }
+// Экспорт текущей сборки
+function exportInstance(root, mc, loaderType) {
+  const inst = loaders.instanceDir(root, mc, loaderType);
+  const meta = readMeta(inst);
+  const items = [];
+  for (const [key, val] of Object.entries(meta)) {
+    if (val.projectId && val.versionId) {
+      items.push({ kind: val.kind, projectId: val.projectId, versionId: val.versionId });
+    }
+  }
+  return { mc, loader: loaderType, items };
+}
 
-module.exports = { configure, search, preview, install, remove, listInstalled, register };
+// Импорт сборки
+async function importInstance(root, mc, loaderType, manifest, onProgress, signal) {
+  if (manifest.mc !== mc || manifest.loader !== loaderType) {
+    throw new Error(`Сборка сделана для ${manifest.mc} (${manifest.loader}), а у вас выбрано ${mc} (${loaderType})`);
+  }
+  let i = 0;
+  for (const item of manifest.items) {
+    i++;
+    if (onProgress) onProgress({ task: i, total: manifest.items.length, name: item.projectId });
+    await install({ root, mc, loaderType, kind: item.kind, projectId: item.projectId, title: item.projectId, icon: "", slug: "", signal }, null);
+  }
+}
+module.exports = { configure, search, preview, install, remove, listInstalled, register, exportInstance, importInstance };

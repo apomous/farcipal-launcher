@@ -24,7 +24,7 @@
   const f1 = (v) => v.toFixed(1);
   let born = 0;
   let isHidden = false;
-  let INTRO_DURATION = 6000;
+  let INTRO_DURATION = 3500;
 
   const COLORS = { green: [61, 207, 111], amber: [232, 180, 90], red: [248, 113, 113] };
   const NRT = 8, NRP = 10;
@@ -277,12 +277,16 @@
 
   // ---------- замеры ----------
   const rectOf = (el) => { const r = el.getBoundingClientRect(); return { left: r.left - shakeX, top: r.top - shakeY, right: r.right - shakeX, bottom: r.bottom - shakeY, width: r.width, height: r.height }; };
-  function readRects() {
-    if (els.play) btnRect = slamS ? btnRect : rectOf(els.play);
-    const r = rectOf(els.play);
-    btnRect = (r.width > 0 && !slamS) ? r : null;
+    function readRects() {
+    if (els.activeBtn) {
+      const r = rectOf(els.activeBtn);
+      btnRect = (r.width > 0 && !slamS) ? r : null;
+    } else {
+      btnRect = null;
+    }
     if (els.progress) progRect = rectOf(els.progress);
   }
+  
   let homeFn = null;
 const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, btnRect.top - 150) : H * 0.3 });
 // в публичный API рядом с setHoverable
@@ -353,7 +357,7 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
     flash = 1; sqz = 1;
     doShake(reduced ? 3 : 12, 420);
     burst(pt.x, pt.y, reduced ? 14 : 48, COLORS.green, -Math.PI / 2, 1.5);
-    if (els.play) { els.play.classList.add("slammed"); setTimeout(() => els.play.classList.remove("slammed"), 300); }
+    if (els.activeBtn) { els.activeBtn.classList.add("slammed"); setTimeout(() => els.play.classList.remove("slammed"), 300); }
     ring();
     const an = hoverAnchors(); if (an) an.forEach((q) => pulses.push({ x: q.x, y: q.y, t: 0 }));
   }
@@ -1105,6 +1109,7 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
         els.play.addEventListener("focus", () => { hovering = true; });
         els.play.addEventListener("blur", () => { hovering = false; });
       }
+      if (!els.activeBtn) els.activeBtn = els.play;
       readRects();
       const h = home(); eye.x = h.x; eye.y = h.y; resetThreads();
       born = performance.now();
@@ -1114,6 +1119,10 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
     slam,
     setHoverable(v) { hoverable = !!v; },
     setHome(fn) { homeFn = fn; },
+    setActionBtn(el) {
+      els.activeBtn = el;
+      readRects(); 
+    },
     phase(name) {
       if (name === "loading") { wantLoading = true; running = false; }
       else if (name === "running") { wantLoading = false; running = true; flash = 0.7; ring(); if (mode !== "slam" && mode !== "recoil") mode = "follow"; }

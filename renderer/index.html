@@ -25,7 +25,7 @@
         <div class="tab-indicator" id="tabIndicator"></div>
         <button class="tab active" data-target="play">ИГРАТЬ</button>
         <button class="tab" data-target="store">МАГАЗИН</button>
-        <button class="tab" data-target="network">СЕТЬ</button>
+        <button class="tab" data-target="network">ВМЕСТЕ</button>
         <button class="tab" data-target="settings">НАСТРОЙКИ</button>
       </div>
 
@@ -125,21 +125,25 @@
       <p class="section-label">журнал</p>
       <div class="log" id="log"></div>
     </section>
-    <section class="panel network" data-view="network">
+<section class="panel network" data-view="network">
   <div class="network-container">
     
     <!-- ЭКРАН 1: ВЫБОР -->
     <div id="netStart" class="net-view">
-      <h2 class="net-title">ТУНЕЛЬ<span>P2P SaaS проект</span></h2>
-      <p class="net-desc">Игра с друзьями без серверов. Соединение напрямую.</p>
+      <h2 class="net-title">СВЯЗЬ БРАТ <span>P2P SaaS</span></h2>
+      <p class="net-desc">Игра с друзьями. Соединение напрямую между вами.</p>
       
-      <button class="btn-neon" id="btnCreateRoom">СОЗДАТЬ КОМНАТУ</button>
+      <!-- Главная кнопка: Блок с фаской -->
+      <button class="net-btn-block" id="btnCreateRoom">
+        <span class="face" id="btnCreateText">СОЗДАТЬ КОМНАТУ</span>
+      </button>
       
       <div class="net-divider"><span>ИЛИ</span></div>
       
       <div class="net-join-wrap">
         <input type="text" id="joinCodeInput" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="19" spellcheck="false" autocomplete="off">
-        <button class="btn-neon small" id="btnJoinRoom">ВОЙТИ</button>
+        <!-- Вторичная кнопка: Контурная -->
+        <button class="net-btn-outline" id="btnJoinRoom">ВОЙТИ</button>
       </div>
     </div>
 
@@ -153,7 +157,11 @@
         <p class="section-label">В СЕТИ:</p>
         <ul id="tunnelPlayersList" class="players-list"></ul>
       </div>
-      <button class="btn-neon danger" id="btnStopHost">ЗАКРЫТЬ КОМНАТУ</button>
+      
+      <!-- Кнопка закрытия: Блок с фаской (опасная) -->
+      <button class="net-btn-block danger" id="btnStopHost">
+        <span class="face">ЗАКРЫТЬ КОМНАТУ</span>
+      </button>
     </div>
 
     <!-- ЭКРАН 3: ГОСТЬ -->
@@ -165,8 +173,16 @@
         <p class="net-desc text-green">Успешно подключено!</p>
         <p class="net-hint">Заходите в Minecraft &rarr; Сетевая игра</p>
         <div class="room-code-box" id="guestAddress">127.0.0.1:25565</div>
-        <button class="btn-neon danger" id="btnStopGuest">ОТКЛЮЧИТЬСЯ</button>
+        <button class="net-btn-block danger" id="btnStopGuest">
+          <span class="face">ОТКЛЮЧИТЬСЯ</span>
+        </button>
       </div>
+    </div>
+
+    <!-- Кнопки сборки (разместим внизу) -->
+    <div class="modpack-actions">
+      <button class="net-btn-outline small" id="btnExportModpack">СКОПИРОВАТЬ СБОРКУ</button>
+      <button class="net-btn-outline small" id="btnImportModpack">ЗАГРУЗИТЬ СБОРКУ</button>
     </div>
 
   </div>

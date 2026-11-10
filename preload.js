@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld("launcher", {
   tunnelJoin: (code, playerName) => ipcRenderer.invoke('tunnel:join', code, playerName),
   tunnelClose: () => ipcRenderer.invoke('tunnel:close'),
   tunnelHost: (playerName) => ipcRenderer.invoke('tunnel:host', playerName),
+  exportModpack: (mc, loader) => ipcRenderer.invoke("modpack:export", { mc, loader }),
+  importModpack: (mc, loader, code) => ipcRenderer.invoke("modpack:import", { mc, loader, code }),
   
 
   settings: { get: () => ipcRenderer.invoke("settings:get"), set: (s) => ipcRenderer.invoke("settings:set", s) },
