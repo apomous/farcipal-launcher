@@ -1,7 +1,8 @@
 // Списки версий Fabric и Forge + установка профиля Fabric. Только Node: без Electron и без @xmcl, поэтому легко тестируется.
 const fs = require("fs");
 const path = require("path");
-
+const { fetch } = require('undici');
+const { farcipalAgent } = require('./network');
 const urls = {
   fabricMeta: "https://meta.fabricmc.net",
   forgeMaven: "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml",
@@ -14,7 +15,7 @@ async function fetchText(url, { tries = 3, timeout = 20000 } = {}) {
   let last;
   for (let i = 0; i < tries; i++) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(timeout) });
+      const res = await fetch(url, { dispatcher: farcipalAgent, signal: AbortSignal.timeout(timeout) });
       if (!res.ok) throw new Error("HTTP " + res.status);
       return await res.text();
     } catch (e) { last = e; await sleep(300 * (i + 1)); }

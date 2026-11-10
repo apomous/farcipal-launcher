@@ -44,15 +44,21 @@ function loadAuth() {
   if (!fs.existsSync(authFile)) return null;
   try {
     const data = fs.readFileSync(authFile);
-    // Если файл уже был зашифрован safeStorage
     if (safeStorage.isEncryptionAvailable()) {
-      // Проверка на старый формат (открытый JSON), чтобы не сломать вход у тех, кто уже авторизовался
-      if (data.toString().startsWith('{')) {
-        return JSON.parse(data.toString());
+      try {
+        const decrypted = safeStorage.decryptString(data);
+        return JSON.parse(decrypted);
+      } catch (decryptError) {
+        // Если расшифровка не удалась, возможно, это старый plaintext-формат
+        try {
+          return JSON.parse(data.toString());
+        } catch (parseError) {
+          console.error("Не удалось прочитать auth ни как зашифрованный, ни как plaintext:", parseError);
+          return null;
+        }
       }
-      const decrypted = safeStorage.decryptString(data);
-      return JSON.parse(decrypted);
     }
+    // Если шифрование недоступно, читаем как есть
     return JSON.parse(data.toString());
   } catch (e) {
     console.error("Ошибка загрузки auth:", e);
@@ -96,7 +102,7 @@ updater.init({ send, log: console.log, isGameRunning: () => !!game });
 discord.init({ clientId: config.discordClientId, enabled: getSettings().discord !== false, brand: "Farcipal" });
 });
 app.on("before-quit", () => {
-  bortController.abort(); // <--- ДОБАВИТЬ
+  appAbortController.abort(); // <--- ДОБАВИТЬ
   discord.destroy();
 });
 app.on("window-all-closed", () => app.quit());
