@@ -1,5 +1,5 @@
 const { contextBridge, ipcRenderer } = require("electron");
-
+const wrappers = new WeakMap();
 contextBridge.exposeInMainWorld("launcher", {
   config: () => ipcRenderer.invoke("config:get"),
   versions: () => ipcRenderer.invoke("versions:list"),
@@ -24,11 +24,20 @@ contextBridge.exposeInMainWorld("launcher", {
   settings: { get: () => ipcRenderer.invoke("settings:get"), set: (s) => ipcRenderer.invoke("settings:set", s) },
   win: (action) => ipcRenderer.send("win:" + action),
   on: (channel, fn) => {
-    const allowed = ["game:log", "game:progress", "game:state", "store:progress", "store:progress", "update:status"];
+    const allowed = ["game:log", "game:progress", "game:state", "store:progress", "update:status"];
     if (!allowed.includes(channel)) return;
-    ipcRenderer.on(channel, (_e, data) => fn(data));
-
+    const wrapped = (_e, data) => fn(data);
+    wrappers.set(fn, wrapped);
+    ipcRenderer.on(channel, wrapped);
   },
+  off: (channel, fn) => {
+  if (!allowed.includes(channel)) return;
+  const wrapped = wrappers.get(fn);
+  if (wrapped) {
+      ipcRenderer.removeListener(channel, wrapped);
+      wrappers.delete(fn);
+    }
+},
   news: {
     get: () => ipcRenderer.invoke("news:get")
   }
