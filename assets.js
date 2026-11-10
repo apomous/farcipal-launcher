@@ -5,7 +5,24 @@ const { fetch } = require('undici');
 const { pipeline } = require('stream/promises');
 const { farcipalAgent } = require('./network');
 
-async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress, hooks) {
+
+async function readBody(res, kind = "arrayBuffer", timeoutMs = 65000, signal) {
+    let timer;
+    try {
+        const bodyPromise = res[kind]();
+        const timeoutPromise = new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error("Таймаут чтения тела ответа")), timeoutMs);
+        });
+        const signalPromise = signal ? new Promise((_, reject) => {
+            if (signal.aborted) return reject(new Error("Отменено"));
+            signal.addEventListener("abort", () => reject(new Error("Отменено")), { once: true });
+        }) : null;
+        return await Promise.race(signalPromise ? [bodyPromise, timeoutPromise, signalPromise] : [bodyPromise, timeoutPromise]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress, hooks, signal) {
     const indexFile = path.join(gameDir, 'assets', 'indexes', indexId + '.json');
     const outputDir = path.join(gameDir, 'assets', 'objects');
 
@@ -16,10 +33,11 @@ async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress, hooks
     let completed = 0;
     let index = 0;
     let downloadedBytes = 0;
-        let consecutiveFailures = 0; 
+    let consecutiveFailures = 0; 
     const MAX_FAILURES = 30; 
     let isAborted = false;
     const totalBytes = objects.reduce((acc, obj) => acc + obj.size, 0);
+    
 
     async function worker() {
          while (index < objects.length && !isAborted) {
@@ -33,14 +51,14 @@ async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress, hooks
             const dest = path.join(outputDir, prefix, hash);
             const url = `https://resources.download.minecraft.net/${prefix}/${hash}`;
 
-    let needsDownload = true;
-    if (fs.existsSync(dest)) {
-        const stat = fs.statSync(dest);
-        if (stat.size === obj.size) {
-        try {
-            const fileHash = crypto.createHash('sha1');
-            await pipeline(fs.createReadStream(dest), async function* (source) {
-                for await (const chunk of source) fileHash.update(chunk);
+            let needsDownload = true;
+            if (fs.existsSync(dest)) {
+                const stat = fs.statSync(dest);
+                if (stat.size === obj.size) {
+                    try {
+                        const fileHash = crypto.createHash('sha1');
+                        await pipeline(fs.createReadStream(dest), async function* (source) {
+                            for await (const chunk of source) fileHash.update(chunk);
             });
             if (fileHash.digest('hex') === hash) {
                 needsDownload = false; 
@@ -52,47 +70,46 @@ async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress, hooks
     }
 }                    
 
-            let success = false;
-            let retries = 0;
-            while (!success && retries < 10) {
-                try {
-                    const res = await fetch(url, { dispatcher: farcipalAgent });
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                    const buffer = await res.arrayBuffer();
-                    fs.mkdirSync(path.dirname(dest), { recursive: true });
-                    fs.writeFileSync(dest, Buffer.from(buffer));
-                    success = true;
-                } catch (e) {
-                    retries++;
-                    await new Promise(r => setTimeout(r, 1000));
-                }
-            }
-
-            if (success) {
-                completed++;
-                downloadedBytes += obj.size;
-                consecutiveFailures = 0;
-                if (onProgress) {
-                    onProgress({ task: Math.floor(downloadedBytes / 1048576), total: Math.ceil(totalBytes / 1048576) });
-                }
-            } else if (!isAborted) {
-                consecutiveFailures++;
-
-                if (consecutiveFailures >= MAX_FAILURES) {
-                    isAborted = true;
-                    throw new Error(`[Сеть] Слишком много ошибок подряд (${MAX_FAILURES}). Похоже, интернет или VPN полностью отвалились.`);
-                }
-                index--; 
-            }
-        }
-    }
-
-    const workers = Array.from({ length: concurrency }, () => worker());
-     try {
-        await Promise.all(workers);
+let success = !needsDownload;
+let retries = 0;
+while (!success && retries < 10) {
+    try {
+        const res = await fetch(url, { dispatcher: farcipalAgent });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const buffer = await readBody(res, "arrayBuffer", 65000, signal);
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, Buffer.from(buffer));
+        success = true;
     } catch (e) {
-        throw e;
+        retries++;
+        if (hooks && hooks.cancel && hooks.cancel.cancelled) {
+        isAborted = true;
+        throw new Error("Отменено");
+        }
+        await new Promise(r => setTimeout(r, 1000));
     }
+}
+
+if (success) {
+    completed++;
+    downloadedBytes += obj.size;
+    consecutiveFailures = 0;
+    if (onProgress) {
+        onProgress({ task: Math.floor(downloadedBytes / 1048576), total: Math.ceil(totalBytes / 1048576) });
+    }
+} else if (!isAborted) {
+    consecutiveFailures++;
+    if (consecutiveFailures >= MAX_FAILURES) {
+        isAborted = true;
+        throw new Error(`[Сеть] Слишком много ошибок подряд (${MAX_FAILURES}). Похоже, интернет или VPN полностью отвалились.`);
+    }
+    index--; 
+   }
+  }
+}
+
+const workers = Array.from({ length: concurrency }, () => worker());   
+await Promise.all(workers);          
 }
 
 module.exports = { ensureAssets };

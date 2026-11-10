@@ -8,7 +8,19 @@ const { farcipalAgent } = require('./network');
 const { ensureAssets } = require('./assets');
 const { fetch } = require('undici');
 
-
+async function readBody(res, kind = "arrayBuffer", timeoutMs = 65000) {
+    let timer;
+    try {
+        return await Promise.race([
+            res[kind](),
+            new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error("Таймаут чтения тела ответа")), timeoutMs);
+            })
+        ]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
 
 // @xmcl бывают и CJS, и ESM: динамический import работает в обоих случаях
 async function loadXmcl() {
@@ -142,8 +154,8 @@ async function installAndLaunch(opts, hooks, deps) {
     
     const res = await fetch(meta.url, { dispatcher: farcipalAgent, signal });
     if (!res.ok) throw new Error(`HTTP ${res.status} при скачивании JSON`);
-    versionData = await res.json();
-    
+    versionData = await readBody(res, "json");
+
     fs.mkdirSync(vDir, { recursive: true });
     fs.writeFileSync(versionJsonPath, JSON.stringify(versionData, null, 2));
   } else {
@@ -174,7 +186,7 @@ async function installAndLaunch(opts, hooks, deps) {
       hooks.log(`качаю client.jar для ${mcVersion}`);
       const jarRes = await fetch(jarUrl, { dispatcher: farcipalAgent, signal });
       if (!jarRes.ok) throw new Error(`HTTP ${jarRes.status} при скачивании JAR`);
-      const jarBuffer = await jarRes.arrayBuffer();
+      const jarBuffer = await readBody(jarRes, "arrayBuffer");
       fs.writeFileSync(jarPath, Buffer.from(jarBuffer));
     }
   }
@@ -193,7 +205,7 @@ async function installAndLaunch(opts, hooks, deps) {
       hooks.log(`качаю индекс ассетов ${assetIndex.id}...`);
       const indexRes = await fetch(assetIndex.url, { dispatcher: farcipalAgent, signal });
       if (!indexRes.ok) throw new Error(`HTTP ${indexRes.status} при скачивании индекса`);
-      const indexData = await indexRes.text();
+      const indexData = await readBody(indexRes, "text");
       fs.writeFileSync(indexPath, indexData);
     }
   }
@@ -201,7 +213,7 @@ async function installAndLaunch(opts, hooks, deps) {
   // Если ID нет (очень старые версии), используем 'legacy'
   const assetIndexId = (parsedBase.assetIndex && parsedBase.assetIndex.id) ? parsedBase.assetIndex.id : 'legacy';
   hooks.log(`Проверяю и докачиваю ассеты (индекс: ${assetIndexId})...`);
-  await ensureAssets(gameDir, assetIndexId, concurrency, (p) => hooks.progress({ type: "файлы " + mcVersion, ...p }), hooks);
+  await ensureAssets(gameDir, assetIndexId, concurrency, (p) => hooks.progress({ type: "файлы " + mcVersion, ...p }), hooks, signal);
   
   // Теперь отдаем это @xmcl, он проверит за секунду и перейдет к библиотекам
   const base = await ensureDeps(mcVersion, "файлы " + mcVersion);
@@ -255,8 +267,7 @@ async function installAndLaunch(opts, hooks, deps) {
         try {
           const apiRes = await fetch(apiUrl, { dispatcher: farcipalAgent, signal });
           if (!apiRes.ok) throw new Error(`HTTP ${apiRes.status}`);
-          const apiData = await apiRes.json();
-          
+          const apiData = await readBody(apiRes, "json");
           if (apiData && apiData[0] && apiData[0].binary && apiData[0].binary.package) {
             downloadUrl = apiData[0].binary.package.link;
           }
@@ -276,7 +287,7 @@ async function installAndLaunch(opts, hooks, deps) {
         // Скачиваем архив
         const zipRes = await fetch(downloadUrl, { dispatcher: farcipalAgent, signal });
         if (!zipRes.ok) throw new Error(`HTTP ${zipRes.status} при скачивании архива`);
-        const zipBuffer = await zipRes.arrayBuffer();
+        const zipBuffer = await readBody(zipRes, "arrayBuffer");
         
         const zipPath = path.join(gameDir, "cache", `java-${need}.zip`);
         fs.mkdirSync(path.dirname(zipPath), { recursive: true });
