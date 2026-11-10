@@ -14,4 +14,5 @@ try {
   }
 } catch (e) {
   console.error('❌ [fix-xmcl] Ошибка при исправлении:', e.message);
+  throw e;
 }
