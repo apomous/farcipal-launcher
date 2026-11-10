@@ -56,7 +56,12 @@
       "uninstallDisplayName": "Farcipal"
     },
     "publish": [
-      { "provider": "github", "owner": "apomous", "repo": "farcipal-launcher", "releaseType": "draft" }
+      {
+        "provider": "github",
+        "owner": "apomous",
+        "repo": "farcipal-launcher",
+        "releaseType": "draft"
+      }
     ]
   }
 }
