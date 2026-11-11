@@ -124,7 +124,7 @@
   if (cfg.server.host) {
     cardsEl.appendChild(card("#3dcf6f", cfg.server.name, `${cfg.server.host}:${cfg.server.port}`, "сервер", ["заход одной галочкой слева"]));
   } else {
-    cardsEl.appendChild(card("#e8b45a", "ВМЕСТЕ","прямое подключение", "", []));
+    cardsEl.appendChild(card("#e8b45a", "открытая бета","при ошибках отправляйте логи", "farci", []));
     $("joinWrap").hidden = true;
   }
     // Загружаем новости: сначала пробуем с сайта, если нет — берем из cfg.news
@@ -378,7 +378,7 @@ if (bad || !game) log(text.slice(0, 200), bad ? "err" : "");
     const playerName = account ? account.name : (q.value.trim() || "Host");
     await C.slam(); 
 
-    const btnText = btnCreateRoom.querySelector('.face'); 
+    const btnText = document.getElementById("btnCreateText"); 
     btnText.textContent = "ПОИСК ИГРЫ...";
     btnCreateRoom.disabled = true;
 
@@ -389,6 +389,7 @@ if (bad || !game) log(text.slice(0, 200), bad ? "err" : "");
 
     if (res.ok) {
       netStart.classList.add("hidden");
+      btnCreateRoom.style.display = "none";
       netHost.classList.remove("hidden");
       hostRoomCode.textContent = res.roomCode;      
       C.setTargets(".tab, .room-code-box, .players-list li");
@@ -409,7 +410,11 @@ if (bad || !game) log(text.slice(0, 200), bad ? "err" : "");
   // Подключение (Гость)
   btnJoinRoom.addEventListener("click", async () => {
     const code = joinCodeInput.value.trim();
-    if (code.length < 10) return alert("Введите корректный код!");
+    if (code.length < 10){
+      joinCodeInput.style.borderColor = "var(--red)";
+      setTimeout(() => joinCodeInput.style.borderColor = "", 2000);
+      return;
+    } 
 
     const playerName = account ? account.name : (q.value.trim() || "Guest");
 
@@ -449,7 +454,8 @@ if (bad || !game) log(text.slice(0, 200), bad ? "err" : "");
     joinCodeInput.value = "";
     
     // Ищем span внутри кнопки и меняем текст ТАМ
-    btnCreateRoom.querySelector('.face').textContent = "СОЗДАТЬ КОМНАТУ"; 
+    document.getElementById("btnCreateText").textContent = "СОЗДАТЬ КОМНАТУ";
+    btnCreateRoom.style.display = "";
     btnCreateRoom.disabled = false;
     C.phase("idle");
     C.setTargets(".panel, .card, .play, .tab, .brand, .scard");
