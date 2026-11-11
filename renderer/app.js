@@ -124,7 +124,7 @@
   if (cfg.server.host) {
     cardsEl.appendChild(card("#3dcf6f", cfg.server.name, `${cfg.server.host}:${cfg.server.port}`, "сервер", ["заход одной галочкой слева"]));
   } else {
-    cardsEl.appendChild(card("#e8b45a", "Сервер не настроен","я делаю!!", "", []));
+    cardsEl.appendChild(card("#e8b45a", "ВМЕСТЕ","прямое подключение", "", []));
     $("joinWrap").hidden = true;
   }
     // Загружаем новости: сначала пробуем с сайта, если нет — берем из cfg.news
