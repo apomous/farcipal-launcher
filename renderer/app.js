@@ -327,7 +327,7 @@ if (bad || !game) log(text.slice(0, 200), bad ? "err" : "");
       document.body.dataset.mode = target;
       if (target === "network") {
         // Указываем ВСЕ элементы, за которые глаз должен цепляться на этой вкладке
-        C.setTargets(".tab, .net-box, .guide, .play-btn-small, .net-btn-outline, .room-code-box");
+        C.setTargets(".tab, .net-box, .net-guide-card, .guide, .play-btn-small, .net-btn-outline, .sc-btn, .room-code-box");
         C.setActionBtn($("btnCreateRoom"));
       } else if (target === "play") {
         C.setTargets(".panel, .card, .play, .tab, .brand, .scard");

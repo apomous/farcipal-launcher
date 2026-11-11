@@ -3,6 +3,9 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const loaders = require("./loaders");
+const { fetch } = require('undici');
+const { farcipalAgent } = require('./network');
+const { once } = require('events'); // <--- ДОБАВЛЕНО ДЛЯ BACKPRESSURE
 
 const cfg = {
   api: "https://api.modrinth.com/v2",
@@ -18,12 +21,13 @@ const KINDS = {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+
 // ---------- API ----------
 async function api(pathAndQuery, tries = 3) {
   let last;
   for (let i = 0; i < tries; i++) {
     try {
-      const res = await fetch(cfg.api + pathAndQuery, { headers: { "User-Agent": cfg.ua, Accept: "application/json" }, signal: AbortSignal.timeout(20000) });
+      const res = await fetch(cfg.api + pathAndQuery, { dispatcher: farcipalAgent, headers: { "User-Agent": cfg.ua, Accept: "application/json" }, signal: AbortSignal.timeout(20000) });
       if (res.status === 429) { await sleep((Number(res.headers.get("retry-after")) || 2) * 1000); throw new Error("HTTP 429"); }
       if (!res.ok) throw new Error("HTTP " + res.status);
       return await res.json();
@@ -95,14 +99,15 @@ function safeName(name, ext) {
 async function sha1File(file) {
   return new Promise((ok, bad) => { const h = crypto.createHash("sha1"), s = fs.createReadStream(file); s.on("data", (d) => h.update(d)); s.on("error", bad); s.on("end", () => ok(h.digest("hex"))); });
 }
-async function download(url, dest, sha1, onPct, tries = 3,signal = null) {
+
+async function download(url, dest, sha1, onPct, tries = 3, signal = null) {
   checkUrl(url);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   let last;
   for (let i = 0; i < tries; i++) {
     const tmp = dest + ".part";
     try {
-      const fetchOpts = { headers: { "User-Agent": cfg.ua } };
+      const fetchOpts = { headers: { "User-Agent": cfg.ua }, dispatcher: farcipalAgent };
       if (signal){
         fetchOpts.signal = AbortSignal.any([signal, AbortSignal.timeout(10 * 60 * 1000)]);
       } else {
@@ -116,7 +121,15 @@ async function download(url, dest, sha1, onPct, tries = 3,signal = null) {
       for (;;) {
         const r = await Promise.race([reader.read(), sleep(30000).then(() => { throw new Error("нет данных 30 с"); })]);
         if (r.done) break;
-        out.write(r.value); hash.update(r.value); got += r.value.length;
+        
+        // --- ФИКС BACKPRESSURE ---
+        // Если диск не успевает записывать, ждем, пока он освободит буфер
+        if (!out.write(r.value)) { 
+            await once(out, 'drain'); 
+        }
+        // ------------------------
+
+        hash.update(r.value); got += r.value.length;
         if (onPct && total) onPct(Math.min(99, Math.round((got / total) * 100)));
       }
       await new Promise((ok, bad) => out.end((e) => (e ? bad(e) : ok())));
@@ -130,8 +143,25 @@ async function download(url, dest, sha1, onPct, tries = 3,signal = null) {
 
 // ---------- учёт установленного ----------
 const metaFile = (inst) => path.join(inst, "farcipal-installed.json");
-function readMeta(inst) { try { return JSON.parse(fs.readFileSync(metaFile(inst), "utf8")).items || {}; } catch { return {}; } }
-function writeMeta(inst, items) { fs.mkdirSync(inst, { recursive: true }); fs.writeFileSync(metaFile(inst), JSON.stringify({ items }, null, 2)); }
+
+// Чтение оставляем синхронным, это быстро
+function readMeta(inst) { 
+  try { return JSON.parse(fs.readFileSync(metaFile(inst), "utf8")).items || {}; } catch { return {}; } 
+}
+
+// --- ФИКС MUTEX (ОЧЕРЕДЬ ЗАПИСИ) ---
+let metaQueue = Promise.resolve();
+function writeMeta(inst, updateFn) {
+  metaQueue = metaQueue.then(() => {
+    const current = readMeta(inst);
+    const updated = updateFn(current);
+    fs.mkdirSync(inst, { recursive: true });
+    fs.writeFileSync(metaFile(inst), JSON.stringify({ items: updated }, null, 2));
+  }).catch(console.error);
+  return metaQueue;
+}
+// -----------------------------------
+
 const key = (kind, file) => kind + "/" + file;
 
 function listInstalled(root, mc, loaderType) {
@@ -150,7 +180,7 @@ function listInstalled(root, mc, loaderType) {
 }
 
 const inflight = new Set();
-async function install({ root, mc, loaderType, kind, projectId, title, icon, slug,signal }, onProgress) {
+async function install({ root, mc, loaderType, kind, projectId, title, icon, slug, signal }, onProgress) {
   if (!KINDS[kind]) throw new Error("неизвестный тип: " + kind);
   if (kind === "mod" && (!loaderType || loaderType === "vanilla")) throw new Error("Для модов выбери Fabric или Forge в настройках");
   if (!mc) throw new Error("не выбрана версия игры");
@@ -168,10 +198,18 @@ async function install({ root, mc, loaderType, kind, projectId, title, icon, slu
       const name = safeName(f.filename, K.ext), dest = path.join(dir, name);
       const same = fs.existsSync(dest) && f.hashes && f.hashes.sha1 && (await sha1File(dest)) === f.hashes.sha1;
       if (!same) { note(info.title, 0); await download(f.url, dest, f.hashes && f.hashes.sha1, (p) => note(info.title, p), 3, signal); }
-      const m2 = readMeta(inst);
-      if (already && already[0] !== key(kind, name)) { try { fs.unlinkSync(path.join(dir, already[0].split("/").slice(1).join("/"))); } catch {} delete m2[already[0]]; }   // обновление: старый файл убираем
-      m2[key(kind, name)] = { kind, projectId: pid, slug: info.slug, title: info.title, icon: info.icon, versionId: v.id, versionNumber: v.version_number, installedAt: new Date().toISOString(), dependencyOf: parentId || undefined };
-      writeMeta(inst, m2);
+      
+      // --- ИСПОЛЬЗУЕМ НАШ МЬЮТЕКС ---
+      await writeMeta(inst, (m2) => {
+        if (already && already[0] !== key(kind, name)) { 
+            try { fs.unlinkSync(path.join(dir, already[0].split("/").slice(1).join("/"))); } catch {} 
+            delete m2[already[0]]; 
+        }   // обновление: старый файл убираем
+        m2[key(kind, name)] = { kind, projectId: pid, slug: info.slug, title: info.title, icon: info.icon, versionId: v.id, versionNumber: v.version_number, installedAt: new Date().toISOString(), dependencyOf: parentId || undefined };
+        return m2;
+      });
+      // ------------------------------
+
       done.push({ title: info.title, file: name, dependency: !!parentId, skipped: same });
       if (kind === "mod" && depth < 3) {
         for (const d of v.dependencies || []) {
@@ -187,12 +225,17 @@ async function install({ root, mc, loaderType, kind, projectId, title, icon, slu
   } finally { inflight.delete(projectId); }
 }
 
-function remove({ root, mc, loaderType, kind, file }) {
+// Сделал функцию async, чтобы дождаться записи в очередь
+async function remove({ root, mc, loaderType, kind, file }) {
   if (!KINDS[kind]) throw new Error("неизвестный тип");
   const inst = loaders.instanceDir(root, mc, loaderType), dir = path.join(inst, KINDS[kind].folder), name = safeName(file, KINDS[kind].ext), target = path.join(dir, name);
   if (path.dirname(target) !== dir) throw new Error("недопустимый путь");
   try { fs.unlinkSync(target); } catch (e) { if (e.code !== "ENOENT") throw e; }
-  const meta = readMeta(inst); delete meta[key(kind, name)]; writeMeta(inst, meta);
+  
+  await writeMeta(inst, (meta) => {
+    delete meta[key(kind, name)];
+    return meta;
+  });
   return true;
 }
 
@@ -204,11 +247,15 @@ function register(ipcMain, ctx) {
   ipcMain.handle("store:preview", (_e, o) => preview({ projectId: o.projectId, kind: o.kind, mc: o.mc, loader: o.loader }));
   ipcMain.handle("store:installed", (_e, o) => listInstalled(ctx.gameDir, o.mc, o.loader));
   ipcMain.handle("store:install", async (_e, o) => {
-    
     try { return { ok: true, ...(await install({ ...prof(o), kind: o.kind, projectId: o.projectId, title: o.title, icon: o.icon, slug: o.slug, signal: ctx.signal }, (p) => ctx.send("store:progress", p))) }; }
     catch (e) { return { ok: false, error: e.message || String(e) }; }
   });
-  ipcMain.handle("store:remove", (_e, o) => { try { return { ok: remove({ ...prof(o), kind: o.kind, file: o.file }) }; } catch (e) { return { ok: false, error: e.message }; } });
+  
+  // ДОБАВЛЕН async ПЕРЕД (_e, o), ТАК КАК remove ТЕПЕРЬ АСИНХРОННЫЙ
+  ipcMain.handle("store:remove", async (_e, o) => { 
+    try { return { ok: await remove({ ...prof(o), kind: o.kind, file: o.file }) }; } catch (e) { return { ok: false, error: e.message }; } 
+  });
+  
   ipcMain.handle("store:folder", async (_e, o) => {
     const dir = path.join(loaders.instanceDir(ctx.gameDir, o.mc, o.loader), KINDS[o.kind] ? KINDS[o.kind].folder : "mods");
     fs.mkdirSync(dir, { recursive: true });
@@ -216,12 +263,13 @@ function register(ipcMain, ctx) {
     return dir;
   });
 }
+
 // Экспорт текущей сборки
 function exportInstance(root, mc, loaderType) {
   const inst = loaders.instanceDir(root, mc, loaderType);
   const meta = readMeta(inst);
   const items = [];
-  for (const [key, val] of Object.entries(meta)) {
+  for (const [k, val] of Object.entries(meta)) { // ИСПРАВЛЕНА ТЕНЬ ПЕРЕМЕННОЙ key -> k
     if (val.projectId && val.versionId) {
       items.push({ kind: val.kind, projectId: val.projectId, versionId: val.versionId });
     }

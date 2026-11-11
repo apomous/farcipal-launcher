@@ -10,6 +10,9 @@ const discord = require("./discord");
 const { installAndLaunch } = require("./game");
 const { createHostInElectron, manageSessions, createGuestInElectron } = require('mc-tunnel/electron');
 const zlib = require('zlib');
+const { fetch } = require('undici');
+const { farcipalAgent } = require('./network');
+
 function getEasytierBinDir() {
   if (app.isPackaged) {
     // В собранном приложении (resources/easytier)
@@ -138,7 +141,7 @@ ipcMain.handle("settings:set", (_e, s) => {
 
 // ---------- версии игры (Mojang) ----------
 ipcMain.handle("versions:list", async () => {
-  const res = await fetch(MANIFEST, { signal: AbortSignal.timeout(20000) });
+  const res = await fetch(MANIFEST, { dispatcher: farcipalAgent, signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error("Манифест версий недоступен: HTTP " + res.status);
   const data = await res.json();
   return {
@@ -296,7 +299,7 @@ const NEWS_URL = "https://raw.githubusercontent.com/apomous/farcipal-launcher/ma
 ipcMain.handle("news:get", async () => {
   try {
     // Таймаут 5 секунд, чтобы не вешать лаунчер, если гитхаб лежит
-    const res = await fetch(NEWS_URL, { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(NEWS_URL, { dispatcher: farcipalAgent, signal: AbortSignal.timeout(5000) });
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
     if (Array.isArray(data) && data.length > 0) return data;
@@ -371,18 +374,16 @@ ipcMain.handle('tunnel:close', async () => {
 });
 ipcMain.handle("modpack:export", (_e, { mc, loader }) => {
   const manifest = modrinth.exportInstance(gameDir, mc, loader);
-  const zlib = require('zlib');
   // Сжимаем JSON в Base64, чтобы строка была короткой
   return zlib.deflateSync(JSON.stringify(manifest)).toString('base64');
 });
 
 ipcMain.handle("modpack:import", async (_e, { mc, loader, code }) => {
   try {
-    const zlib = require('zlib');
     const manifest = JSON.parse(zlib.inflateSync(Buffer.from(code, 'base64')).toString());
     await modrinth.importInstance(gameDir, mc, loader, manifest, (p) => {
       send("game:log", { text: `Скачивание сборки: ${p.task}/${p.total}` });
-    });
+    }, appAbortController.signal);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message };

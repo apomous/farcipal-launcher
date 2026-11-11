@@ -8,20 +8,22 @@ const { farcipalAgent } = require('./network');
 const { ensureAssets } = require('./assets');
 const { fetch } = require('undici');
 
-async function readBody(res, kind = "arrayBuffer", timeoutMs = 65000) {
+async function readBody(res, kind = "arrayBuffer", timeoutMs = 65000, signal) {
     let timer;
     try {
-        return await Promise.race([
-            res[kind](),
-            new Promise((_, reject) => {
-                timer = setTimeout(() => reject(new Error("Таймаут чтения тела ответа")), timeoutMs);
-            })
-        ]);
+        const bodyPromise = res[kind]();
+        const timeoutPromise = new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error("Таймаут чтения тела ответа")), timeoutMs);
+        });
+        const signalPromise = signal ? new Promise((_, reject) => {
+            if (signal.aborted) return reject(new Error("Отменено"));
+            signal.addEventListener("abort", () => reject(new Error("Отменено")), { once: true });
+        }) : null;
+        return await Promise.race(signalPromise ? [bodyPromise, timeoutPromise, signalPromise] : [bodyPromise, timeoutPromise]);
     } finally {
         clearTimeout(timer);
     }
 }
-
 // @xmcl бывают и CJS, и ESM: динамический import работает в обоих случаях
 async function loadXmcl() {
    const coreModule = await import("@xmcl/core");
@@ -79,7 +81,23 @@ async function runTask(task, fallback, label, hooks) {
       throw e;
     } finally { if (hooks.cancel) hooks.cancel.task = null; }
   } else {
-    result = await fallback();
+    // Оборачиваем в гонку, чтобы отмена срабатывала, даже если @xmcl завис
+    let checkInt;
+    const cancelPromise = new Promise((_, reject) => {
+      checkInt = setInterval(() => {
+        if (hooks.cancel && hooks.cancel.cancelled) {
+          clearInterval(checkInt);
+          reject(new Error("Отменено"));
+        }
+      }, 200);
+    });
+    try {
+      const fbPromise = fallback();
+      fbPromise.catch(() => {});
+      result = await Promise.race([fbPromise, cancelPromise]);
+    } finally {
+      clearInterval(checkInt);
+    }
   }
   checkCancel(hooks);
   return result;
@@ -173,8 +191,12 @@ async function installAndLaunch(opts, hooks, deps) {
     if (!needsJarDownload) {
       // Проверяем SHA1 существующего JAR
       const crypto = require('crypto');
-      const fileBuffer = fs.readFileSync(jarPath);
-      const actualSha1 = crypto.createHash('sha1').update(fileBuffer).digest('hex');
+      const { pipeline } = require('stream/promises');
+      const fileHash = crypto.createHash('sha1');
+      await pipeline(fs.createReadStream(jarPath), async function* (source) {
+          for await (const chunk of source) fileHash.update(chunk);
+      });
+      const actualSha1 = fileHash.digest('hex');
       
       if (actualSha1 !== expectedSha1) {
         hooks.log(`JAR повреждён (ожидался ${expectedSha1.slice(0, 8)}..., получен ${actualSha1.slice(0, 8)}...). Перекачиваю...`);

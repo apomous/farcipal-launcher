@@ -2,7 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto'); 
 const { fetch } = require('undici'); 
-const { pipeline } = require('stream/promises');
 const { farcipalAgent } = require('./network');
 
 
@@ -56,11 +55,12 @@ async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress, hooks
                 const stat = fs.statSync(dest);
                 if (stat.size === obj.size) {
                     try {
-                        const fileHash = crypto.createHash('sha1');
-                        await pipeline(fs.createReadStream(dest), async function* (source) {
-                            for await (const chunk of source) fileHash.update(chunk);
-            });
-            if (fileHash.digest('hex') === hash) {
+                                                const fileHash = crypto.createHash('sha1');
+                        const stream = fs.createReadStream(dest);
+                        for await (const chunk of stream) {
+                            fileHash.update(chunk);
+                        }
+                if (fileHash.digest('hex') === hash) {
                 needsDownload = false; 
             }
         } catch (err) {
@@ -74,11 +74,11 @@ let success = !needsDownload;
 let retries = 0;
 while (!success && retries < 10) {
     try {
-        const res = await fetch(url, { dispatcher: farcipalAgent });
+        const res = await fetch(url, { dispatcher: farcipalAgent, signal });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const buffer = await readBody(res, "arrayBuffer", 65000, signal);
         fs.mkdirSync(path.dirname(dest), { recursive: true });
-        fs.writeFileSync(dest, Buffer.from(buffer));
+        await fs.promises.writeFile(dest, Buffer.from(buffer));
         success = true;
     } catch (e) {
         retries++;

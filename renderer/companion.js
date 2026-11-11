@@ -357,7 +357,7 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
     flash = 1; sqz = 1;
     doShake(reduced ? 3 : 12, 420);
     burst(pt.x, pt.y, reduced ? 14 : 48, COLORS.green, -Math.PI / 2, 1.5);
-    if (els.activeBtn) { els.activeBtn.classList.add("slammed"); setTimeout(() => els.play.classList.remove("slammed"), 300); }
+    if (els.activeBtn) { els.activeBtn.classList.add("slammed"); setTimeout(() => els.activeBtn.classList.remove("slammed"), 300); }
     ring();
     const an = hoverAnchors(); if (an) an.forEach((q) => pulses.push({ x: q.x, y: q.y, t: 0 }));
   }

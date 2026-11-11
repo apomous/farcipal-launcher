@@ -125,7 +125,8 @@
       <p class="section-label">журнал</p>
       <div class="log" id="log"></div>
     </section>
-<section class="network" data-view="network">
+
+    <section class="network" data-view="network">
   <div class="net-header">
     <h2 class="net-title">ИГРАТЬ ВМЕСТЕ</h2>
     <p class="net-desc">Прямое соединение между вами.</p>
@@ -140,39 +141,35 @@
         <h3 class="net-box-title">Создать комнату</h3>
         <p class="net-box-desc">Открой мир в Minecraft «Для сети», затем нажми кнопку. Мы сами найдем порт.</p>
         
-        <!-- Кнопка в стиле главной (Запустить) -->
         <button class="play-btn-small" id="btnCreateRoom" data-s="idle">
           <span class="face"><span id="btnCreateText">СОЗДАТЬ КОМНАТУ</span></span>
         </button>
 
-        <!-- Экран хоста (скрыт по умолчанию) -->
         <div id="netHost" class="net-view hidden">
           <div class="room-code-box" id="hostRoomCode" title="Нажмите, чтобы скопировать">----</div>
           <p class="net-hint text-green">Отправьте код другу!</p>
-          
           <div class="players-list-wrap">
             <p class="section-label">В СЕТИ:</p>
             <ul id="tunnelPlayersList" class="players-list"></ul>
           </div>
-          
           <button class="net-btn-outline danger" id="btnStopHost">ЗАКРЫТЬ КОМНАТУ</button>
         </div>
       </div>
 
       <!-- Гость -->
-      <div class="net-box" id="netStart">
-        <h3 class="net-box-title">Подключиться</h3>
-        <p class="net-box-desc">Введи код комнаты, который скинул друг.</p>
-        <div class="net-join-wrap">
-          <input type="text" id="joinCodeInput" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="19" spellcheck="false" autocomplete="off">
-          <button class="net-btn-outline" id="btnJoinRoom">ВОЙТИ</button>
+      <div class="net-box">
+        <div id="netStart">
+          <h3 class="net-box-title">Подключиться</h3>
+          <p class="net-box-desc">Введи код комнаты, который скинул друг.</p>
+          <div class="net-join-wrap">
+            <input type="text" id="joinCodeInput" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="19" spellcheck="false" autocomplete="off">
+            <button class="net-btn-outline" id="btnJoinRoom">ВОЙТИ</button>
+          </div>
         </div>
 
-        <!-- Экран гостя -->
         <div id="netGuest" class="net-view hidden">
           <div class="loader-ring" id="guestLoader"></div>
           <p class="net-hint text-yellow" id="guestStatus">Подключение...</p>
-          
           <div id="guestSuccess" class="hidden" style="text-align: center;">
             <p class="text-green" style="margin-bottom: 8px;">Успешно подключено!</p>
             <p class="net-hint">Заходите в Minecraft &rarr; Сетевая игра</p>
@@ -186,42 +183,37 @@
 
     <!-- ПРАВАЯ КОЛОНКА: ИНСТРУКЦИЯ И СБОРКИ -->
     <div class="net-side">
-      
-      <!-- Инструкция (в стиле карточек новостей) -->
       <div class="net-guide-card">
         <details class="guide">
-        <summary>⚠️ Как играть с другом (читать перед стартом)</summary>
-        <div class="guide-content">
-          <p><b>Хосту (тому, кто создает комнату):</b></p>
-          <ol>
-            <li>Запусти Minecraft.</li>
-            <li>Загрузи любой мир.</li>
-            <li>Нажми <code>Esc</code> -> <b>«Открыть для сети»</b>.</li>
-            <li>Только теперь жми кнопку <b>«СОЗДАТЬ КОМНАТУ»</b>.</li>
-          </ol>
-          <p style="margin-top: 10px;"><b>Гостю (тому, кто подключается):</b></p>
-          <ol>
-            <li>Запусти Minecraft.</li>
-            <li>Получи от друга код и введи его сюда.</li>
-            <li>Нажми «Войти» и жди адрес (например, <code>127.0.0.1:25565</code>).</li>
-            <li>В игре зайди в <b>«Сетевая игра»</b> — мир друга появится в списке.</li>
-          </ol>
-        </div>
-      </details>
+          <summary>⚠️ Как играть с другом (читать перед стартом)</summary>
+          <div class="guide-content">
+            <p><b>Хосту (тому, кто создает комнату):</b></p>
+            <ol>
+              <li>Запусти Minecraft.</li>
+              <li>Загрузи любой мир.</li>
+              <li>Нажми <code>Esc</code> -> <b>«Открыть для сети»</b>.</li>
+              <li>Только теперь жми кнопку <b>«СОЗДАТЬ КОМНАТУ»</b>.</li>
+            </ol>
+            <p style="margin-top: 10px;"><b>Гостю (тому, кто подключается):</b></p>
+            <ol>
+              <li>Запусти Minecraft.</li>
+              <li>Получи от друга код и введи его сюда.</li>
+              <li>Нажми «Войти» и жди адрес (например, <code>127.0.0.1:25565</code>).</li>
+              <li>В игре зайди в <b>«Сетевая игра»</b> — мир друга появится в списке.</li>
+            </ol>
+          </div>
+        </details>
       </div>
 
-      <!-- Шаринг сборки -->
       <div class="net-guide-card">
         <h4>Синхронизация модов</h4>
         <p style="font-size: 12px; color: var(--muted); margin-bottom: 12px;">Чтобы другу не пришлось искать моды вручную, передайте ему код вашей сборки.</p>
         <button class="sc-btn" id="btnExportModpack" style="width: 100%; margin-bottom: 8px;">СКОПИРОВАТЬ СБОРКУ</button>
         <button class="sc-btn" id="btnImportModpack" style="width: 100%;">ЗАГРУЗИТЬ СБОРКУ</button>
       </div>
-
     </div>
   </div>
 </section>
-
    
   </main>
 
