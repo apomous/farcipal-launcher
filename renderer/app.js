@@ -13,8 +13,21 @@
   const companionToggle = $("companionToggle");
   const discordToggle = $("discordToggle");
   const conc = $("conc"), concOut = $("concOut");
-  C.init({ play, progress, shake: $("shake"), targets: ".panel, .card, .play, .tab, .brand, .scard"});
-  
+
+  // общее состояние — до всех листенеров, чтобы порядок загрузки не mattered
+  let account = null;
+  let starting = false;
+  let manifest = null, supported = null;
+  let wantLoaderVer = "";
+
+  // 17 на ползунке = «безлимит» → 0 для main (game.js превратит 0 в 64 потока)
+  const concVal = () => (Number(conc.value) === 17 ? 0 : Number(conc.value));
+
+  // сессию восстанавливаем параллельно — это самый медленный запрос при старте
+  const sessionPromise = L.session().catch(() => null);
+
+  C.init({ play, progress, shake: $("shake"), targets: ".panel, .card, .play, .tab, .brand, .scard" });
+
   // ---------- часы ----------
   const tick = () => { const d = new Date(); $("clock").textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
   tick(); setInterval(tick, 1000);
@@ -41,10 +54,10 @@
 
   // ---------- состояние интерфейса ----------
   const UI = {
-    idle:    { dot: "idle",     pill: "готов",     status: "готов",     btn: "ЗАПУСТИТЬ" },
-    loading: { dot: "scanning", pill: "загрузка",  status: "загрузка",  btn: "ОСТАНОВИТЬ" },
-  running: { dot: "found",    pill: "закрыть игру",    status: "закрыть игру",    btn: "ЗАКРЫТЬ ИГРУ" },
-    error:   { dot: "error",    pill: "сбой",      status: "ошибка",    btn: "ЗАПУСТИТЬ" }
+    idle:    { dot: "idle",     pill: "готов",        status: "готов",        btn: "ЗАПУСТИТЬ" },
+    loading: { dot: "scanning", pill: "загрузка",     status: "загрузка",     btn: "ОСТАНОВИТЬ" },
+    running: { dot: "found",    pill: "закрыть игру", status: "закрыть игру", btn: "ЗАКРЫТЬ ИГРУ" },
+    error:   { dot: "error",    pill: "сбой",         status: "ошибка",       btn: "ЗАПУСТИТЬ" }
   };
   let uiState = "idle";
   function setUi(s) {
@@ -53,42 +66,43 @@
     pillDot.dataset.s = statusDot.dataset.s = u.dot;
     pillText.textContent = u.pill; statusText.textContent = u.status;
     playText.textContent = u.btn; play.dataset.s = s;
-    play.disabled = false; // <--- ИСПРАВЛЕНО: теперь кнопка всегда кликабельна
+    play.disabled = false;
     play.setAttribute("aria-busy", s === "loading" ? "true" : "false");
-    
-    [ver, snap, loader, loaderVer].forEach((el) => { el.disabled = s === "loading" || s === "running"; });
-    acct.disabled = s === "loading" || s === "running";
-    
-    // Глаз реагирует на наведение только когда мы в меню или ошибке
-    C.setHoverable(s === "idle" || s === "error"); 
+    const busy = s === "loading" || s === "running";
+    [ver, snap, loader, loaderVer, acct, q].forEach((el) => { el.disabled = busy; });
+    C.setHoverable(s === "idle" || s === "error");
   }
   setUi("idle");
 
-  // ---------- настройки ----------
-  const settings = await L.settings.get();
+  // ---------- настройки + конфиг (локальные, быстрые) ----------
+  const [settings, cfg] = await Promise.all([L.settings.get(), L.config()]);
+
+  // сетевые запросы стартуют сразу, потребим их ниже — кнопки уже будут живые
+  const newsPromise = L.news.get().catch(() => null);
+  const versionsPromise = L.versions();
+  versionsPromise.catch(() => {}); // обработаем в try ниже, это просто от unhandledrejection
+
   ram.value = settings.memory; ramOut.textContent = `${settings.memory} ГБ`;
   snap.checked = settings.snapshots; join.checked = settings.joinServer;
   conc.value = (settings.concurrency === 0) ? 17 : (settings.concurrency || 4);
   concOut.textContent = (conc.value == 17) ? "∞" : conc.value;
-    // Восстанавливаем состояние FARCOP
-  const isCompanionEnabled = settings.companion !== false; // По умолчанию true
+  const isCompanionEnabled = settings.companion !== false;
   companionToggle.checked = isCompanionEnabled;
   C.setVisible(isCompanionEnabled);
   discordToggle.checked = settings.discord !== false;
   q.value = settings.demoName || "";
   loader.value = settings.loaderType || "vanilla";
-  let wantLoaderVer = settings.loaderVersion || "";
+  wantLoaderVer = settings.loaderVersion || "";
+
   const save = () => L.settings.set({
     memory: Number(ram.value), version: ver.value, snapshots: snap.checked,
     joinServer: join.checked, demoName: q.value.trim(), loaderType: loader.value, loaderVersion: loaderVer.value,
     companion: companionToggle.checked, discord: discordToggle.checked,
-    concurrency: Number(conc.value) == 17 ? 0 : Number(conc.value)
+    concurrency: concVal()
   });
   ram.addEventListener("input", () => { ramOut.textContent = `${ram.value} ГБ`; });
   ram.addEventListener("change", save);
-    conc.addEventListener("input", () => { 
-    concOut.textContent = (conc.value == 17) ? "∞" : conc.value; 
-  });
+  conc.addEventListener("input", () => { concOut.textContent = (conc.value == 17) ? "∞" : conc.value; });
   conc.addEventListener("change", save);
   join.addEventListener("change", save);
   ver.addEventListener("change", () => { save(); fillLoaderVersions(); });
@@ -97,17 +111,12 @@
   snap.addEventListener("change", () => { save(); fillVersions(); });
   q.addEventListener("blur", save);
   q.addEventListener("input", renderProfile);
-  q.addEventListener("keydown", (e) => { if (e.key === "Enter") play.click(); });
-    companionToggle.addEventListener("change", () => {
-    save();
-    C.setVisible(companionToggle.checked);
-  });
-    discordToggle.addEventListener("change", () => L.settings.set({ discord: discordToggle.checked }));
+  // Enter запускает только из меню — иначе он убивал запущенную игру
+  q.addEventListener("keydown", (e) => { if (e.key === "Enter" && (uiState === "idle" || uiState === "error")) play.click(); });
+  companionToggle.addEventListener("change", () => { save(); C.setVisible(companionToggle.checked); });
+  discordToggle.addEventListener("change", () => L.settings.set({ discord: discordToggle.checked }));
 
-  
-
-  // ---------- конфиг и карточки ----------
-  const cfg = await L.config();
+  // ---------- карточки ----------
   function card(color, title, sub, pct, tags) {
     const c = document.createElement("article");
     c.className = "card"; c.style.setProperty("--c", color);
@@ -124,96 +133,72 @@
   if (cfg.server.host) {
     cardsEl.appendChild(card("#3dcf6f", cfg.server.name, `${cfg.server.host}:${cfg.server.port}`, "сервер", ["заход одной галочкой слева"]));
   } else {
-    cardsEl.appendChild(card("#e8b45a", "открытая бета","при ошибках отправляйте логи", "farci", []));
+    cardsEl.appendChild(card("#e8b45a", "открытая бета", "при ошибках отправляйте логи", "farci", []));
     $("joinWrap").hidden = true;
   }
-    // Загружаем новости: сначала пробуем с сайта, если нет — берем из cfg.news
-  let newsItems = cfg.news;
-  try {
-    newsItems = await L.news.get();
-  } catch (e) {
-    log("Не удалось загрузить новости, использую локальные", "err");
-  }
-
-  newsItems.forEach((n) => {
-    // Выбираем цвет карточки
-    const color = n.color === "green" ? "#3dcf6f" : n.color === "amber" ? "#e8b45a" : "#6d7288";
-    cardsEl.appendChild(card(color, n.title, n.text, "", n.tag ? [n.tag] : []));
-  });
 
   // ---------- версии ----------
-  let manifest = null, supported = null;   // supported: версии игры, которые умеет загрузчик (null = Vanilla)
-function fillVersions() {
-  if (!manifest) return;
-  const currentVal = ver.value;
-  const keep = (currentVal && currentVal !== "загрузка…") ? currentVal : settings.version;
-  ver.textContent = "";
-  manifest.versions
-    .filter((v) => supported ? supported.has(v.id) : (v.type === "release" || (snap.checked && v.type === "snapshot")))
-    .forEach((v) => { 
-      const o = document.createElement("option"); 
-      o.value = v.id; 
-      o.textContent = v.id; 
-      ver.appendChild(o); 
-    });
-  const has = (id) => [...ver.options].some((o) => o.value === id);
-  ver.value = has(keep) ? keep : has(manifest.latest.release) ? manifest.latest.release : (ver.options[0] ? ver.options[0].value : "");
-}
-  try {
-    log("загружаю список версий");
-    manifest = await L.versions();
-    fillVersions();
-    log(`версий: ${manifest.versions.length}, последний релиз ${manifest.latest.release}`, "ok");
-  } catch (e) {
-    log("список версий недоступен: " + e.message, "err");
-    showHint("Нет связи с серверами Mojang. Проверь интернет и перезапусти лаунчер.");
+  function fillVersions() {
+    if (!manifest) return;
+    const currentVal = ver.value;
+    const keep = (currentVal && currentVal !== "загрузка…") ? currentVal : settings.version;
+    ver.textContent = "";
+    manifest.versions
+      .filter((v) => supported ? supported.has(v.id) : (v.type === "release" || (snap.checked && v.type === "snapshot")))
+      .forEach((v) => {
+        const o = document.createElement("option");
+        o.value = v.id; o.textContent = v.id;
+        ver.appendChild(o);
+      });
+    const has = (id) => [...ver.options].some((o) => o.value === id);
+    ver.value = has(keep) ? keep : has(manifest.latest.release) ? manifest.latest.release : (ver.options[0] ? ver.options[0].value : "");
   }
-  const gamesCache = {};
-let loaderReq = 0;                       // защита от устаревших ответов при быстром переключении
-const addOpt = (sel, value, text) => { const o = document.createElement("option"); o.value = value; o.textContent = text; sel.appendChild(o); };
 
-async function fillLoaderVersions() {
-  const type = loader.value;
-  loaderVerWrap.hidden = type === "vanilla";
-  if (type === "vanilla" || !ver.value) return;
-  const my = ++loaderReq, mc = ver.value;
-  loaderVer.textContent = ""; addOpt(loaderVer, "", "загрузка…"); loaderVer.disabled = true;
-  try {
-    const { items, recommended } = await L.loaderVersions(type, mc);
-    if (my !== loaderReq) return;
-    loaderVer.textContent = "";
-    if (!items.length) { addOpt(loaderVer, "", `нет версий для ${mc}`); return; }
-    items.forEach((it) => addOpt(loaderVer, it.id, it.label));
-    loaderVer.value = items.some((i) => i.id === wantLoaderVer) ? wantLoaderVer : (recommended || items[0].id);
-    wantLoaderVer = loaderVer.value;
-    loaderVer.disabled = uiState === "loading" || uiState === "running";
-    save();
-  } catch (e) {
-    if (my !== loaderReq) return;
-    loaderVer.textContent = ""; addOpt(loaderVer, "", "недоступно");
-    log("версии загрузчика недоступны: " + e.message, "err");
+  const gamesCache = {};
+  let loaderReq = 0;   // защита от устаревших ответов при быстром переключении
+  const addOpt = (sel, value, text) => { const o = document.createElement("option"); o.value = value; o.textContent = text; sel.appendChild(o); };
+
+  async function fillLoaderVersions() {
+    const type = loader.value;
+    loaderVerWrap.hidden = type === "vanilla";
+    if (type === "vanilla" || !ver.value || !manifest) return;
+    const my = ++loaderReq, mc = ver.value;
+    loaderVer.textContent = ""; addOpt(loaderVer, "", "загрузка…"); loaderVer.disabled = true;
+    try {
+      const { items, recommended } = await L.loaderVersions(type, mc);
+      if (my !== loaderReq) return;
+      loaderVer.textContent = "";
+      if (!items.length) { addOpt(loaderVer, "", `нет версий для ${mc}`); return; }
+      items.forEach((it) => addOpt(loaderVer, it.id, it.label));
+      loaderVer.value = items.some((i) => i.id === wantLoaderVer) ? wantLoaderVer : (recommended || items[0].id);
+      wantLoaderVer = loaderVer.value;
+      loaderVer.disabled = uiState === "loading" || uiState === "running";
+      save();
+    } catch (e) {
+      if (my !== loaderReq) return;
+      loaderVer.textContent = ""; addOpt(loaderVer, "", "недоступно");
+      loaderVer.disabled = false;   // не залочиваем селект после ошибки сети
+      log("версии загрузчика недоступны: " + e.message, "err");
+    }
   }
-}
-async function refreshLoader() {
-  const type = loader.value;
-  snap.closest("label").hidden = type !== "vanilla";
-  if (type === "vanilla") { supported = null; loaderVerWrap.hidden = true; fillVersions(); return; }
-  const my = ++loaderReq;
-  try {
-    if (!gamesCache[type]) gamesCache[type] = new Set(await L.loaderGames(type));
-    if (my !== loaderReq) return;
-    supported = gamesCache[type]; fillVersions();
-  } catch (e) {
-    log("список версий для загрузчика недоступен: " + e.message, "err");
-    showHint("Не удалось получить версии " + (type === "forge" ? "Forge" : "Fabric") + ". Проверь интернет.");
-    return;
+  async function refreshLoader() {
+    const type = loader.value;
+    snap.closest("label").hidden = type !== "vanilla";
+    if (type === "vanilla") { supported = null; loaderVerWrap.hidden = true; fillVersions(); return; }
+    const my = ++loaderReq;
+    try {
+      if (!gamesCache[type]) gamesCache[type] = new Set(await L.loaderGames(type));
+      if (my !== loaderReq) return;
+      supported = gamesCache[type]; fillVersions();
+    } catch (e) {
+      log("список версий для загрузчика недоступен: " + e.message, "err");
+      showHint("Не удалось получить версии " + (type === "forge" ? "Forge" : "Fabric") + ". Проверь интернет.");
+      return;
+    }
+    await fillLoaderVersions();
   }
-  await fillLoaderVersions();
-}
-await refreshLoader();
 
   // ---------- аккаунт и профиль ----------
-  let account = null;
   function renderProfile() {
     if (account) {
       pname.textContent = account.name; psub.textContent = account.demo ? "аккаунт без игры · демо" : "Microsoft";
@@ -231,9 +216,6 @@ await refreshLoader();
     if (!account) showHint("Без входа игра запускается в демо-режиме Mojang: введи ник.", true);
     else showHint(account.demo ? "На аккаунте нет купленной игры: запустится демо-режим." : "", true);
   }
-  account = await L.session();
-  if (account) log(`сессия Microsoft восстановлена: ${account.name}`, "ok");
-  renderAccount();
 
   acct.addEventListener("click", async () => {
     acct.disabled = true;
@@ -246,28 +228,28 @@ await refreshLoader();
     } finally { acct.disabled = false; renderAccount(); }
   });
 
-  // ---------- запуск: удар, потом загрузка ----------
-  let starting = false;
+  // ---------- запуск ----------
   play.addEventListener("click", async () => {
-        if (uiState === "running" || uiState === "loading") { 
-      await L.stop(); 
-      setUi("idle");
-      C.phase("idle");
+    if (uiState === "running" || uiState === "loading") {
+      await L.stop();
+      showHint("останавливаю…", true);   // UI переключится по событию game:state, без гонки
       starting = false;
       return;
-    } 
-        if (starting) return;
+    }
+    if (starting) return;
+    if (!manifest) { showHint("Список версий ещё загружается, подожди пару секунд"); return; }
     if (loader.value !== "vanilla" && !loaderVer.value) { showHint("Выбери версию загрузчика"); return; }
     starting = true;
     save(); showHint("");
-    await C.slam();                       // глаз врезается в кнопку, дальше только загрузка
+    await C.slam();
     const res = await L.play({
       version: ver.value, memory: Number(ram.value), joinServer: join.checked,
-      mode: account ? "microsoft" : "demo", name: q.value,loaderType: loader.value, loaderVersion: loaderVer.value,
-      concurrency: Number(conc.value)
+      mode: account ? "microsoft" : "demo", name: q.value,
+      loaderType: loader.value, loaderVersion: loaderVer.value,
+      concurrency: concVal()   // ФИКС: «безлимит» уезжает как 0, а не 17
     });
     starting = false;
-    if (res.cancelled) { setUi("idle"); C.phase("idle"); progress.className = "progress"; stopTimer(); return; }
+    if (res.cancelled) { setUi("idle"); C.phase("idle"); progress.className = "progress"; stopTimer(); showHint(""); return; }
     if (!res.ok) {
       showHint(res.error); log(res.error, "err");
       setUi("error"); C.phase("error"); progress.className = "progress"; stopTimer();
@@ -281,9 +263,9 @@ await refreshLoader();
       progress.className = "progress on"; startTimer(); log(`запускаю ${ver.value}`);
     } else if (state === "running") {
       setUi("running"); C.setVisible(false);
-      progress.className = "progress done"; stopTimer(); log("игра запущена", "ok");
+      progress.className = "progress done"; stopTimer(); log("игра запущена", "ok"); showHint("");
     } else if (state === "stopped") {
-      setUi("idle"); C.phase("idle"); progress.className = "progress"; stopTimer(); log("игра закрыта");
+      setUi("idle"); C.phase("idle"); progress.className = "progress"; stopTimer(); log("игра закрыта"); showHint("");
       if (companionToggle.checked) C.setVisible(true);
     } else if (state === "error") {
       setUi("error"); C.phase("error"); progress.className = "progress"; stopTimer();
@@ -296,245 +278,264 @@ await refreshLoader();
 
   let lastProg = 0;
   L.on("game:progress", (p) => {
-    const now = performance.now(); 
+    const now = performance.now();
     const txt = p.total > 1 ? `${p.type}: ${p.task}/${p.total} МБ` : p.type;
     statusText.textContent = txt;
     if (now - lastProg > 700 || (p.total > 1 && p.task === p.total)) { log(txt); lastProg = now; }
   });
   L.on("game:log", ({ text, game }) => {
     if (!text) return;
-const bad = /error|fail|exception|сбой|ошибк|не удалось|нет на диске: [1-9]/i.test(text);
-if (bad || !game) log(text.slice(0, 200), bad ? "err" : "");
-  });  
-  // --- ЛОГИКА ВКЛАДОК ---
-  const tabs = document.querySelectorAll(".tab");
-  const tabIndicator = document.getElementById("tabIndicator");
+    const bad = /error|fail|exception|сбой|ошибк|не удалось|нет на диске: [1-9]/i.test(text);
+    if (bad || !game) log(text.slice(0, 200), bad ? "err" : "");
+  });
 
+  // ---------- вкладки ----------
+  const tabs = document.querySelectorAll(".tab");
+  const tabIndicator = $("tabIndicator");
   function moveIndicator(activeTab) {
     if (!activeTab || !tabIndicator) return;
     tabIndicator.style.width = `${activeTab.offsetWidth}px`;
     tabIndicator.style.transform = `translateX(${activeTab.offsetLeft}px)`;
   }
+  function applyCompanionTargets(mode) {
+    if (mode === "network") {
+      C.setTargets(".tab, .net-box, .net-guide-card, .guide, .play-btn-small, .net-btn-outline, .sc-btn, .room-code-box");
+      C.setActionBtn($("btnCreateRoom"));
+    } else if (mode === "play") {
+      C.setTargets(".panel, .card, .play, .tab, .brand, .scard");
+      C.setActionBtn($("play"));
+    } else {
+      C.setTargets(".panel, .card, .play, .tab, .brand, .scard");
+      C.setActionBtn(null);
+    }
+  }
   tabs.forEach(tab => {
     tab.addEventListener("click", () => {
-      // Переключаем активный класс у кнопок
       tabs.forEach(t => t.classList.remove("active"));
       tab.classList.add("active");
       moveIndicator(tab);
-
-      // Меняем режим у body (это включит нужные CSS-стили)
       const target = tab.dataset.target;
       document.body.dataset.mode = target;
-      if (target === "network") {
-        // Указываем ВСЕ элементы, за которые глаз должен цепляться на этой вкладке
-        C.setTargets(".tab, .net-box, .net-guide-card, .guide, .play-btn-small, .net-btn-outline, .sc-btn, .room-code-box");
-        C.setActionBtn($("btnCreateRoom"));
-      } else if (target === "play") {
-        C.setTargets(".panel, .card, .play, .tab, .brand, .scard");
-        C.setActionBtn($("play"));
-      } else {
-        C.setTargets(".panel, .card, .play, .tab, .brand, .scard");
-        C.setActionBtn(null);
-      }
-      
+      applyCompanionTargets(target);
       if (uiState === "idle" || uiState === "error") C.phase("idle");
     });
   });
-
-  // Инициализация при старте (чтобы плашка сразу встала под "ИГРАТЬ")
-  setTimeout(() => {
-    moveIndicator(document.querySelector('.tab.active'));
-  }, 100);
-    // Устанавливаем режим "play" по умолчанию при старте
   document.body.dataset.mode = "play";
-  
-  // Кнопки управления окном
+  // плашка встаёт точно после догрузки шрифтов (font-display: swap меняет ширины)
+  const placeIndicator = () => moveIndicator(document.querySelector(".tab.active"));
+  placeIndicator();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(placeIndicator);
+  addEventListener("resize", placeIndicator);
+
+  // ---------- окно ----------
   $("wmin").addEventListener("click", () => L.win("min"));
   $("wclose").addEventListener("click", () => L.win("close"));
-  // Сон при потере фокуса
-  window.addEventListener('blur', () => {
-    // Скрываем глаз, если он включен и игра не запущена (чтобы не было конфликтов)
-    if (companionToggle.checked && uiState !== 'running') {
-      C.setVisible(false);
-    }
+  window.addEventListener("blur", () => {
+    if (companionToggle.checked && uiState !== "running") C.setVisible(false);
+  });
+  window.addEventListener("focus", () => {
+    if (companionToggle.checked && uiState !== "running") C.setVisible(true);
   });
 
-  // Пробуждение при возврате в окно
-  window.addEventListener('focus', () => {
-    if (companionToggle.checked && uiState !== 'running') {
-      C.setVisible(true);
-    }
-  });
-  // --- ЛОГИКА ВКЛАДКИ СЕТЬ ---
+  // ---------- вкладка СЕТЬ ----------
   const netStart = $("netStart"), netHost = $("netHost"), netGuest = $("netGuest");
   const btnCreateRoom = $("btnCreateRoom"), btnJoinRoom = $("btnJoinRoom");
   const joinCodeInput = $("joinCodeInput");
   const hostRoomCode = $("hostRoomCode"), tunnelPlayersList = $("tunnelPlayersList");
   const guestStatus = $("guestStatus"), guestLoader = $("guestLoader"), guestSuccess = $("guestSuccess"), guestAddress = $("guestAddress");
+  let codeCopied = false;
+  const playerItems = new Map();   // ники с пробелами/дубликаты больше не ломают список
 
-
-    
-  // Создание комнаты (Хост)
   btnCreateRoom.addEventListener("click", async () => {
-    const playerName = account ? account.name : (q.value.trim() || "Host");
-    await C.slam(); 
-
-    const btnText = document.getElementById("btnCreateText"); 
-    btnText.textContent = "ПОИСК ИГРЫ...";
-    btnCreateRoom.disabled = true;
-
-    const res = await L.tunnelHost(playerName);
-    
-    btnText.textContent = "СОЗДАТЬ КОМНАТУ";
-    btnCreateRoom.disabled = false;
-
-    if (res.ok) {
-      netStart.classList.add("hidden");
-      btnCreateRoom.style.display = "none";
-      netHost.classList.remove("hidden");
-      hostRoomCode.textContent = res.roomCode;      
-      C.setTargets(".tab, .room-code-box, .players-list li");
-      C.phase("running");
-    } else {
-      alert("Ошибка: " + res.error);
+    if (btnCreateRoom.disabled) return;
+    btnCreateRoom.disabled = true;   // лочим ДО анимации, двойной клик не пройдёт
+    const btnText = $("btnCreateText");
+    try {
+      const playerName = account ? account.name : (q.value.trim() || "Host");
+      await C.slam();
+      btnText.textContent = "ПОИСК ИГРЫ...";
+      const res = await L.tunnelHost(playerName);
+      if (res.ok) {
+        netStart.classList.add("hidden");
+        btnCreateRoom.style.display = "none";
+        netHost.classList.remove("hidden");
+        hostRoomCode.dataset.code = res.roomCode;   // код живёт тут, текст можно менять смело
+        hostRoomCode.textContent = res.roomCode;
+        C.setTargets(".tab, .room-code-box, .players-list li");
+        C.setActionBtn(hostRoomCode);
+        C.phase("running");
+      } else {
+        alert("Ошибка: " + res.error);
+      }
+    } finally {
+      btnText.textContent = "СОЗДАТЬ КОМНАТУ";
+      btnCreateRoom.disabled = false;
     }
   });
 
-  // Копирование кода
-  hostRoomCode.addEventListener("click", () => {
-    navigator.clipboard.writeText(hostRoomCode.textContent);
-    const old = hostRoomCode.textContent;
+  hostRoomCode.addEventListener("click", async () => {
+    const code = hostRoomCode.dataset.code;
+    if (!code || codeCopied) return;   // повторный клик не копирует «СКОПИРОВАНО!»
+    try { await navigator.clipboard.writeText(code); } catch { return; }
+    codeCopied = true;
     hostRoomCode.textContent = "СКОПИРОВАНО!";
-    setTimeout(() => hostRoomCode.textContent = old, 1500);
+    setTimeout(() => {
+      hostRoomCode.textContent = hostRoomCode.dataset.code || "----";
+      codeCopied = false;
+    }, 1500);
   });
 
-  // Подключение (Гость)
   btnJoinRoom.addEventListener("click", async () => {
+    if (btnJoinRoom.disabled) return;
     const code = joinCodeInput.value.trim();
-    if (code.length < 10){
+    if (code.length < 10) {
       joinCodeInput.style.borderColor = "var(--red)";
       setTimeout(() => joinCodeInput.style.borderColor = "", 2000);
       return;
-    } 
-
+    }
+    btnJoinRoom.disabled = true;
     const playerName = account ? account.name : (q.value.trim() || "Guest");
-
     netStart.classList.add("hidden");
     netGuest.classList.remove("hidden");
+    guestStatus.classList.remove("hidden", "text-yellow");   // сбрасываем прошлую ошибку
     guestStatus.textContent = "Ищем хоста...";
     guestSuccess.classList.add("hidden");
     guestLoader.classList.remove("hidden");
-
-    const res = await L.tunnelJoin(code, playerName);
-
-    if (res.ok) {
-      guestStatus.classList.add("hidden");
-      guestLoader.classList.add("hidden");
-      guestSuccess.classList.remove("hidden");
-      guestAddress.textContent = res.address;
-      C.setTargets(".tab, .room-code-box");
-      C.slam().then(() => C.phase("running")); // Глаз бьет по адресу
-    } else {
-      guestStatus.textContent = "Ошибка: " + res.error;
-      guestStatus.classList.add("text-yellow");
-      guestLoader.classList.add("hidden");
-      setTimeout(() => {
-        netGuest.classList.add("hidden");
-        netStart.classList.remove("hidden");
-      }, 3000);
+    try {
+      const res = await L.tunnelJoin(code, playerName);
+      if (res.ok) {
+        guestStatus.classList.add("hidden");
+        guestLoader.classList.add("hidden");
+        guestSuccess.classList.remove("hidden");
+        guestAddress.textContent = res.address;
+        C.setTargets(".tab, .room-code-box");
+        C.setActionBtn(guestAddress);   // глаз бьёт именно по адресу
+        C.slam().then(() => C.phase("running"));
+      } else {
+        guestStatus.textContent = "Ошибка: " + res.error;
+        guestStatus.classList.add("text-yellow");
+        guestLoader.classList.add("hidden");
+        setTimeout(() => {
+          netGuest.classList.add("hidden");
+          netStart.classList.remove("hidden");
+        }, 3000);
+      }
+    } finally {
+      btnJoinRoom.disabled = false;
     }
   });
 
-  // Закрытие сессии (Хост или Гость)
-    // Функция для сброса интерфейса (мгновенная)
-    const resetTunnelUI = () => {
+  const resetTunnelUI = () => {
     netHost.classList.add("hidden");
     netGuest.classList.add("hidden");
     netStart.classList.remove("hidden");
     tunnelPlayersList.innerHTML = "";
+    playerItems.clear();
     joinCodeInput.value = "";
-    
-    // Ищем span внутри кнопки и меняем текст ТАМ
-    document.getElementById("btnCreateText").textContent = "СОЗДАТЬ КОМНАТУ";
+    delete hostRoomCode.dataset.code;
+    hostRoomCode.textContent = "----";
+    codeCopied = false;
+    guestStatus.classList.remove("hidden", "text-yellow");
+    btnJoinRoom.disabled = false;
+    $("btnCreateText").textContent = "СОЗДАТЬ КОМНАТУ";
     btnCreateRoom.style.display = "";
     btnCreateRoom.disabled = false;
     C.phase("idle");
-    C.setTargets(".panel, .card, .play, .tab, .brand, .scard");
+    applyCompanionTargets(document.body.dataset.mode || "play");   // не сбрасываем таргеты на play, если мы в «Вместе»
   };
 
-  // Вызов закрытия (сначала меняем UI, потом убиваем процесс в фоне)
   const stopTunnel = async () => {
-    resetTunnelUI(); // <--- Сразу показываем, что комната закрыта
-    try {
-      await L.tunnelClose(); // Ждем, пока процесс умрет
-    } catch (e) {
-      log("Ошибка при отключении: " + e.message, "err");
-    }
+    resetTunnelUI();
+    try { await L.tunnelClose(); } catch (e) { log("Ошибка при отключении: " + e.message, "err"); }
   };
-
-  // Привязываем кнопки
   $("btnStopHost").addEventListener("click", stopTunnel);
   $("btnStopGuest").addEventListener("click", stopTunnel);
+  L.on("tunnel:closed", resetTunnelUI);
 
-    // Слушаем событие из main.js (сбрасываем UI)
-  L.on("tunnel:closed", () => {
-    resetTunnelUI(); 
-  });
-  
-
-
-
-  // События из main.js
   L.on("tunnel:player-join", (name) => {
+    if (playerItems.has(name)) return;
     const li = document.createElement("li");
     li.textContent = name;
-    li.id = "player-" + name;
     tunnelPlayersList.appendChild(li);
+    playerItems.set(name, li);
   });
-
   L.on("tunnel:player-leave", (name) => {
-    const li = document.getElementById("player-" + name);
-    if (li) li.remove();
+    const li = playerItems.get(name);
+    if (li) { li.remove(); playerItems.delete(name); }
   });
 
-  
-  // --- ЭКСПОРТ/ИМПОРТ СБОРКИ ---
+  // ---------- экспорт/импорт сборки ----------
   const btnExport = $("btnExportModpack"), btnImport = $("btnImportModpack");
+  const importWrap = $("importWrap"), importCodeInput = $("importCodeInput"), btnImportGo = $("btnImportGo");
 
   if (btnExport) {
     btnExport.addEventListener("click", async () => {
+      if (btnExport.disabled) return;
+      btnExport.disabled = true;
       try {
         const code = await L.exportModpack(ver.value, loader.value);
         await navigator.clipboard.writeText(code);
         btnExport.textContent = "СКОПИРОВАНО!";
-        setTimeout(() => btnExport.textContent = "СКОПИРОВАТЬ СБОРКУ", 2000);
+        setTimeout(() => { btnExport.textContent = "СКОПИРОВАТЬ СБОРКУ"; btnExport.disabled = false; }, 2000);
       } catch (e) {
+        btnExport.disabled = false;
         alert("Ошибка экспорта: " + e.message);
       }
     });
   }
 
-  if (btnImport) {
-    btnImport.addEventListener("click", async () => {
-      const code = prompt("Вставьте код сборки от хоста:");
-      if (!code) return;
-      
-      btnImport.textContent = "ЗАГРУЗКА...";
-      btnImport.disabled = true;
-      log("Начинаю скачивание сборки хоста...", "info");
-
-      const res = await L.importModpack(ver.value, loader.value, code.trim());
-
-      btnImport.textContent = "ЗАГРУЗИТЬ СБОРКУ ХОСТА";
-      btnImport.disabled = false;
-
-      if (res.ok) {
-        log("Сборка успешно установлена!", "ok");
-        alert("Сборка успешно скачана! Можете запускать игру.");
-      } else {
-        log("Ошибка импорта: " + res.error, "err");
-        alert("Ошибка: " + res.error);
-      }
+  // prompt() в Electron не поддерживается — вместо него inline-поле (см. патч index.html)
+  if (btnImport && importWrap) {
+    btnImport.addEventListener("click", () => {
+      importWrap.classList.toggle("hidden");
+      if (!importWrap.classList.contains("hidden")) importCodeInput.focus();
     });
+    const doImport = async () => {
+      const code = importCodeInput.value.trim();
+      if (!code || btnImportGo.disabled) return;
+      btnImportGo.disabled = true; btnImport.disabled = true;
+      btnImport.textContent = "ЗАГРУЗКА...";
+      log("Начинаю скачивание сборки хоста...");
+      try {
+        const res = await L.importModpack(ver.value, loader.value, code);
+        if (res.ok) {
+          log("Сборка успешно установлена!", "ok");
+          importWrap.classList.add("hidden");
+          importCodeInput.value = "";
+          alert("Сборка успешно скачана! Можете запускать игру.");
+        } else {
+          log("Ошибка импорта: " + res.error, "err");
+          alert("Ошибка: " + res.error);
+        }
+      } finally {
+        btnImportGo.disabled = false; btnImport.disabled = false;
+        btnImport.textContent = "ЗАГРУЗИТЬ СБОРКУ ХОСТА";
+      }
+    };
+    btnImportGo.addEventListener("click", doImport);
+    importCodeInput.addEventListener("keydown", (e) => { if (e.key === "Enter") doImport(); });
   }
+
+  // ---------- загрузка данных (кнопки выше уже работают) ----------
+  const newsItems = (await newsPromise) || cfg.news || [];
+  newsItems.forEach((n) => {
+    const color = n.color === "green" ? "#3dcf6f" : n.color === "amber" ? "#e8b45a" : "#6d7288";
+    cardsEl.appendChild(card(color, n.title, n.text, "", n.tag ? [n.tag] : []));
+  });
+
+  try {
+    log("загружаю список версий");
+    manifest = await versionsPromise;
+    fillVersions();
+    log(`версий: ${manifest.versions.length}, последний релиз ${manifest.latest.release}`, "ok");
+  } catch (e) {
+    log("список версий недоступен: " + e.message, "err");
+    showHint("Нет связи с серверами Mojang. Проверь интернет и перезапусти лаунчер.");
+  }
+
+  await refreshLoader();
+
+  account = await sessionPromise;
+  if (account) log(`сессия Microsoft восстановлена: ${account.name}`, "ok");
+  renderAccount();
 })();

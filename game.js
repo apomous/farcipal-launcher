@@ -7,9 +7,10 @@ const loaders = require("./loaders");
 const { farcipalAgent } = require('./network');
 const { ensureAssets } = require('./assets');
 const { fetch } = require('undici');
+const crypto = require("crypto");
 
 async function readBody(res, kind = "arrayBuffer", timeoutMs = 65000, signal) {
-    let timer;
+    let timer, onAbort;
     try {
         const bodyPromise = res[kind]();
         const timeoutPromise = new Promise((_, reject) => {
@@ -17,11 +18,16 @@ async function readBody(res, kind = "arrayBuffer", timeoutMs = 65000, signal) {
         });
         const signalPromise = signal ? new Promise((_, reject) => {
             if (signal.aborted) return reject(new Error("Отменено"));
-            signal.addEventListener("abort", () => reject(new Error("Отменено")), { once: true });
+            onAbort = () => reject(new Error("Отменено"));
+            signal.addEventListener("abort", onAbort, { once: true });
         }) : null;
         return await Promise.race(signalPromise ? [bodyPromise, timeoutPromise, signalPromise] : [bodyPromise, timeoutPromise]);
+    } catch (e) {
+        try { if (res.body) res.body.cancel(); } catch {}   // не докачиваем отменённое в фоне
+        throw e;
     } finally {
         clearTimeout(timer);
+        if (signal && onAbort) signal.removeEventListener("abort", onAbort);
     }
 }
 // @xmcl бывают и CJS, и ESM: динамический import работает в обоих случаях
@@ -102,7 +108,12 @@ async function runTask(task, fallback, label, hooks) {
   checkCancel(hooks);
   return result;
 }
-
+const sleep = (ms, signal) => new Promise((resolve, reject) => {
+  if (signal && signal.aborted) { const e = new Error("Отменено"); e.cancelled = true; return reject(e); }
+  const onAbort = () => { clearTimeout(t); const e = new Error("Отменено"); e.cancelled = true; reject(e); };
+  const t = setTimeout(() => { if (signal) signal.removeEventListener("abort", onAbort); resolve(); }, ms);
+  if (signal) signal.addEventListener("abort", onAbort, { once: true });
+});
 const exists = (p) => { try { return fs.existsSync(p); } catch { return false; } };
 const versionJson = (gameDir, id) => path.join(gameDir, "versions", id, id + ".json");
 
@@ -124,7 +135,7 @@ async function installAndLaunch(opts, hooks, deps) {
   if ((loaderType === "forge" || loaderType === "fabric") && !loaderVersion) throw new Error(`Выбери версию ${loaderType === "forge" ? "Forge" : "Fabric"}`);
   fs.mkdirSync(gameDir, { recursive: true });
 
-      const ensureDeps = async (id, label) => {
+    const ensureDeps = async (id, label) => {
     const resolved = await core.Version.parse(gameDir, id);
     
     let attempt = 1;
@@ -141,14 +152,12 @@ async function installAndLaunch(opts, hooks, deps) {
         break; // Если ошибок нет — выходим из цикла
       } catch (e) {
         // Если пользователь сам нажал "Отмена" — не делаем ретраи
-        if (hooks.cancel && hooks.cancel.cancelled) throw e; 
-        
-        // Если это была последняя попытка — кидаем ошибку наверх
-        if (attempt === maxRetries) throw e; 
-        
-        hooks.log(`[Сеть] Сбой скачивания (попытка ${attempt}/${maxRetries}). Ждем 3 секунды и продолжаем...`);
-        await new Promise(r => setTimeout(r, 3000)); // Ждем 3 секунды перед следующей попыткой
+        const delay = Math.min(3000 * 2 ** (attempt - 1), 15000);   // экспоненциальный backoff
+        hooks.log(`[Сеть] Сбой скачивания (попытка ${attempt}/${maxRetries}). Пауза ${Math.round(delay / 1000)} с...`);
+        await sleep(delay, signal);   // «Остановить» прерывает и паузу
         attempt++;
+        
+        
       }
     }
     return resolved;
@@ -172,7 +181,7 @@ async function installAndLaunch(opts, hooks, deps) {
     
     const res = await fetch(meta.url, { dispatcher: farcipalAgent, signal });
     if (!res.ok) throw new Error(`HTTP ${res.status} при скачивании JSON`);
-    versionData = await readBody(res, "json");
+    versionData = await readBody(res, "json", 65000, signal);
 
     fs.mkdirSync(vDir, { recursive: true });
     fs.writeFileSync(versionJsonPath, JSON.stringify(versionData, null, 2));
@@ -190,7 +199,7 @@ async function installAndLaunch(opts, hooks, deps) {
     
     if (!needsJarDownload) {
       // Проверяем SHA1 существующего JAR
-      const crypto = require('crypto');
+      
       const { pipeline } = require('stream/promises');
       const fileHash = crypto.createHash('sha1');
       await pipeline(fs.createReadStream(jarPath), async function* (source) {
@@ -204,14 +213,18 @@ async function installAndLaunch(opts, hooks, deps) {
       }
     }
     
-    if (needsJarDownload) {
+       if (needsJarDownload) {
       hooks.log(`качаю client.jar для ${mcVersion}`);
       const jarRes = await fetch(jarUrl, { dispatcher: farcipalAgent, signal });
       if (!jarRes.ok) throw new Error(`HTTP ${jarRes.status} при скачивании JAR`);
-      const jarBuffer = await readBody(jarRes, "arrayBuffer");
-      fs.writeFileSync(jarPath, Buffer.from(jarBuffer));
+      const jarBuffer = Buffer.from(await readBody(jarRes, "arrayBuffer", 120000, signal));
+      if (expectedSha1 && crypto.createHash("sha1").update(jarBuffer).digest("hex") !== expectedSha1) {
+        throw new Error("Скачанный JAR повреждён (SHA1 не совпал). Запусти ещё раз — перекачаю.");
+      }
+      fs.writeFileSync(jarPath + ".tmp", jarBuffer);
+      fs.renameSync(jarPath + ".tmp", jarPath);
     }
-  }
+  } 
       
   
   // Парсим версию, чтобы достать ID индекса ассетов
@@ -227,7 +240,7 @@ async function installAndLaunch(opts, hooks, deps) {
       hooks.log(`качаю индекс ассетов ${assetIndex.id}...`);
       const indexRes = await fetch(assetIndex.url, { dispatcher: farcipalAgent, signal });
       if (!indexRes.ok) throw new Error(`HTTP ${indexRes.status} при скачивании индекса`);
-      const indexData = await readBody(indexRes, "text");
+      const indexData = await readBody(indexRes, "text", 65000, signal);
       fs.writeFileSync(indexPath, indexData);
     }
   }
@@ -240,147 +253,93 @@ async function installAndLaunch(opts, hooks, deps) {
   // Теперь отдаем это @xmcl, он проверит за секунду и перейдет к библиотекам
   const base = await ensureDeps(mcVersion, "файлы " + mcVersion);
        // докачает недостающее и битое, лишнего не трогает
-    const need = (base.javaVersion && base.javaVersion.majorVersion) || fallbackJava(mcVersion);
+    // 2) Java: ищем подходящую локально, иначе качаем в runtime/java-<major>
+  const need = (base.javaVersion && base.javaVersion.majorVersion) || fallbackJava(mcVersion);
   let actualJavaPath = javaPath;
   let have = getJava(actualJavaPath);
 
-  // --- УМНАЯ ПРОВЕРКА ЛОКАЛЬНОЙ JAVA В ПАПКЕ RUNTIME ---
   const runtimeDir = path.join(gameDir, "runtime");
+  const javaDirFor = (major) => path.join(runtimeDir, "java-" + major);
   const javaExeName = process.platform === "win32" ? "javaw.exe" : "java";
-  
-  const findJavaInDir = (dir) => {
-    if (!fs.existsSync(dir)) return null;
-    const files = fs.readdirSync(dir, { withFileTypes: true });
-    for (const file of files) {
-      const fullPath = path.join(dir, file.name);
-      if (file.isDirectory()) {
-        const found = findJavaInDir(fullPath);
-        if (found) return found;
-      } else if (file.name === javaExeName) {
-        return fullPath;
+  const javaFits = (v) => !!v && (need === 8 ? v === 8 : v >= need);
+
+  // собираем ВСЕ кандидаты и проверяем версию, а не берём первый попавшийся javaw.exe
+  const findAllJava = (dir) => {
+    const out = [];
+    const walk = (d) => {
+      let entries;
+      try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+      for (const f of entries) {
+        const p = path.join(d, f.name);
+        if (f.isDirectory()) walk(p);
+        else if (f.name === javaExeName) out.push(p);
       }
-    }
-    return null;
+    };
+    walk(dir);
+    return out;
   };
 
-  const localJavaPath = findJavaInDir(runtimeDir);
-  if (localJavaPath) {
-    const localVer = getJava(localJavaPath);
-    if (localVer && localVer >= need) {
-      actualJavaPath = localJavaPath;
-      have = localVer; // Java найдена, качать не нужно
-    }
+  const candidates = [...new Set([...findAllJava(javaDirFor(need)), ...findAllJava(runtimeDir)])];
+  for (const p of candidates) {
+    const v = getJava(p);
+    if (javaFits(v)) { actualJavaPath = p; have = v; break; }
   }
-  // ----------------------------------------------------
-  
- 
-    if (!have || have < need || (need === 8 && have > 8)) {
-    hooks.log(`Установлена Java ${have || 'не найдена'}. Для ${mcVersion} нужна Java ${need}. Скачиваю Java ${need}...`);
+
+  if (!javaFits(have)) {
+    hooks.log(`Установлена Java ${have || "не найдена"}. Для ${mcVersion} нужна Java ${need}. Скачиваю Java ${need}...`);
     hooks.progress({ type: "Java", task: 0, total: 1 });
-    
+
+    const javaRuntimeDir = javaDirFor(need);   // своя папка на мажорную версию — больше не перекачиваем каждый запуск
+    const { spawn } = require("child_process");
+    const sevenZip = require("7zip-bin");
+    let sevenZipPath = sevenZip.path7za;
+    if (process.resourcesPath) {
+      const unpacked = path.join(process.resourcesPath, "app.asar.unpacked", "node_modules", "7zip-bin", "win", "x64", "7za.exe");
+      if (fs.existsSync(unpacked)) sevenZipPath = unpacked;
+    }
+    const run7z = (args) => new Promise((resolve, reject) => {
+      if (!fs.existsSync(sevenZipPath)) return reject(new Error("7za.exe не найден: " + sevenZipPath));
+      const child = spawn(sevenZipPath, args, { windowsHide: true });
+      const onAbort = () => { try { child.kill(); } catch {} };
+      if (signal) signal.addEventListener("abort", onAbort, { once: true });
+      const done = (fn, arg) => { if (signal) signal.removeEventListener("abort", onAbort); fn(arg); };
+      child.on("close", (code) => code === 0 ? done(resolve) : done(reject, new Error(`7zip exited with code ${code}`)));
+      child.on("error", (e) => done(reject, e));
+    });
+
     try {
-      const javaRuntimeDir = path.join(gameDir, "runtime");
-      
-      // Если нужна Java 21+, качаем через Adoptium API
       if (need >= 21) {
-        hooks.log(`Скачиваю Java ${need} с Adoptium...`);
+        // Adoptium: сначала JRE (~45 МБ), JDK (~190 МБ) — только запасной вариант
         let downloadUrl = null;
-        const apiUrl = `https://api.adoptium.net/v3/assets/latest/${need}/hotspot?architecture=x64&image_type=jdk&os=windows`;
-        try {
-          const apiRes = await fetch(apiUrl, { dispatcher: farcipalAgent, signal });
-          if (!apiRes.ok) throw new Error(`HTTP ${apiRes.status}`);
-          const apiData = await readBody(apiRes, "json");
-          if (apiData && apiData[0] && apiData[0].binary && apiData[0].binary.package) {
-            downloadUrl = apiData[0].binary.package.link;
-          }
-        } catch (e) {
-          hooks.log(`Ошибка API Adoptium (${e.message}). Пробую резервную ссылку...`);
+        for (const imageType of ["jre", "jdk"]) {
+          try {
+            const apiUrl = `https://api.adoptium.net/v3/assets/latest/${need}/hotspot?architecture=x64&image_type=${imageType}&os=windows`;
+            const apiRes = await fetch(apiUrl, { dispatcher: farcipalAgent, signal });
+            if (!apiRes.ok) continue;
+            const apiData = await readBody(apiRes, "json", 65000, signal);
+            const link = apiData && apiData[0] && apiData[0].binary && apiData[0].binary.package && apiData[0].binary.package.link;
+            if (link) { downloadUrl = link; hooks.log(`Скачиваю Java ${need} (${imageType.toUpperCase()}) с Adoptium...`); break; }
+          } catch (e) { hooks.log(`Adoptium API (${imageType}): ${e.message}`); }
         }
+        if (!downloadUrl) downloadUrl = `https://api.adoptium.net/v3/binary/latest/${need}/ga/windows/x64/jre/hotspot/normal/eclipse`;
 
-        // Если API не дало ссылку, используем прямой статический URL
-        if (!downloadUrl) {
-          downloadUrl = `https://api.adoptium.net/v3/binary/latest/${need}/ga/windows/x64/jdk/hotspot/normal/eclipse`;
-        }
-
-        hooks.log(`качаю архив Java ${need}...`);
         hooks.log(`Скачивание Java ${need} может занять несколько минут, не закрывай лаунчер...`);
-       
-        
-        // Скачиваем архив
         const zipRes = await fetch(downloadUrl, { dispatcher: farcipalAgent, signal });
         if (!zipRes.ok) throw new Error(`HTTP ${zipRes.status} при скачивании архива`);
-        const zipBuffer = await readBody(zipRes, "arrayBuffer");
-        
+        const zipBuffer = await readBody(zipRes, "arrayBuffer", 600000, signal);
+
         const zipPath = path.join(gameDir, "cache", `java-${need}.zip`);
         fs.mkdirSync(path.dirname(zipPath), { recursive: true });
         fs.writeFileSync(zipPath, Buffer.from(zipBuffer));
-        
-        // Распаковываем через 7zip
-        const sevenZip = require('7zip-bin');
-        let sevenZipPath = sevenZip.path7za;
-        if (process.resourcesPath) {
-          const unpackedPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '7zip-bin', 'win', 'x64', '7za.exe');
-          if (fs.existsSync(unpackedPath)) sevenZipPath = unpackedPath;
-        }
-        
-        const { spawn } = require('child_process');
-        await new Promise((resolve, reject) => {
-          const child = spawn(sevenZipPath, ['x', zipPath, `-o${javaRuntimeDir}`, '-y']);
-          child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`7zip exited with code ${code}`)));
-          child.on('error', reject);
-        });
-        
-        // Ищем javaw.exe в распакованной папке
-        const javaExeName = process.platform === "win32" ? "javaw.exe" : "java";
-        const findJavaExe = (dir) => {
-          const files = fs.readdirSync(dir, { withFileTypes: true });
-          for (const file of files) {
-            const fullPath = path.join(dir, file.name);
-            if (file.isDirectory()) {
-              const found = findJavaExe(fullPath);
-              if (found) return found;
-            } else if (file.name === javaExeName) {
-              return fullPath;
-            }
-          }
-          return null;
-        };
-        
-        const foundPath = findJavaExe(javaRuntimeDir);
-        if (foundPath) {
-          actualJavaPath = foundPath;
-          hooks.log(`Java ${need} успешно установлена: ${actualJavaPath}`);
-        } else {
-          throw new Error(`Не удалось найти ${javaExeName} в ${javaRuntimeDir}`);
-        }
+        checkCancel(hooks);
+        await run7z(["x", zipPath, `-o${javaRuntimeDir}`, "-y"]);
       } else {
-        // Для старых версий (Java 8) используем встроенную функцию
-        const { spawn } = require('child_process');
-        const sevenZip = require('7zip-bin');
-        
+        // Java 8/17 — JRE с серверов Mojang
         const unpackLZMA = async (src, dest) => {
           const tarDir = path.dirname(src);
-          let sevenZipPath = sevenZip.path7za;
-          if (process.resourcesPath) {
-            const unpackedPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '7zip-bin', 'win', 'x64', '7za.exe');
-            if (fs.existsSync(unpackedPath)) sevenZipPath = unpackedPath;
-          }
-          if (!fs.existsSync(sevenZipPath)) throw new Error(`7za.exe не найден по пути: ${sevenZipPath}`);
-          
-          await new Promise((resolve, reject) => {
-            const child = spawn(sevenZipPath, ['e', src, `-o${tarDir}`, '-y']);
-            child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`7zip (lzma) exited with code ${code}`)));
-            child.on('error', reject);
-          });
-          
-          const tarFile = path.join(tarDir, path.basename(src, '.lzma'));
-          await new Promise((resolve, reject) => {
-            const child = spawn(sevenZipPath, ['x', tarFile, `-o${dest}`, '-y']);
-            child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`7zip (tar) exited with code ${code}`)));
-            child.on('error', reject);
-          });
+          await run7z(["e", src, `-o${tarDir}`, "-y"]);
+          await run7z(["x", path.join(tarDir, path.basename(src, ".lzma")), `-o${dest}`, "-y"]);
         };
-        
         const cacheDir = path.join(gameDir, "cache");
         const downloadedJavaPath = await runTask(
           inst.installJreFromMojangTask ? inst.installJreFromMojangTask({ destination: javaRuntimeDir, unpackLZMA, cacheDir }) : null,
@@ -388,38 +347,20 @@ async function installAndLaunch(opts, hooks, deps) {
           "Java " + need,
           hooks
         );
-        
-        if (downloadedJavaPath) {
-          actualJavaPath = downloadedJavaPath;
-          hooks.log(`Java ${need} успешно установлена: ${actualJavaPath}`);
-        } else {
-          const javaExeName = process.platform === "win32" ? "javaw.exe" : "java";
-          const findJavaExe = (dir) => {
-            const files = fs.readdirSync(dir, { withFileTypes: true });
-            for (const file of files) {
-              const fullPath = path.join(dir, file.name);
-              if (file.isDirectory()) {
-                const found = findJavaExe(fullPath);
-                if (found) return found;
-              } else if (file.name === javaExeName) {
-                return fullPath;
-              }
-            }
-            return null;
-          };
-          const foundPath = findJavaExe(javaRuntimeDir);
-          if (foundPath) {
-            actualJavaPath = foundPath;
-            hooks.log(`Найдена Java: ${actualJavaPath}`);
-          } else {
-            throw new Error(`Не удалось найти ${javaExeName} в ${javaRuntimeDir}`);
-          }
-        }
+        if (downloadedJavaPath) actualJavaPath = downloadedJavaPath;
       }
+      // ищем exe только в папке нужной версии и проверяем, что он той версии
+      if (!actualJavaPath || !fs.existsSync(actualJavaPath) || !javaFits(getJava(actualJavaPath))) {
+        const found = findAllJava(javaRuntimeDir).find((p) => javaFits(getJava(p)));
+        if (!found) throw new Error(`Не удалось найти ${javaExeName} в ${javaRuntimeDir}`);
+        actualJavaPath = found;
+      }
+      hooks.log(`Java ${need} успешно установлена: ${actualJavaPath}`);
     } catch (e) {
+      if (hooks.cancel && hooks.cancel.cancelled) throw e;
       throw new Error(`Не удалось скачать Java ${need}: ${e.message}.`);
     }
-  }
+  }  
   // 3) загрузчик
   let versionId = mcVersion;
   if (loaderType === "fabric") {

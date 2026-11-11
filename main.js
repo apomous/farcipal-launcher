@@ -12,6 +12,7 @@ const { createHostInElectron, manageSessions, createGuestInElectron } = require(
 const zlib = require('zlib');
 const { fetch } = require('undici');
 const { farcipalAgent } = require('./network');
+const { spawn } = require("child_process");
 
 function getEasytierBinDir() {
   if (app.isPackaged) {
@@ -41,16 +42,23 @@ function readJson(file, fallback) {
 }
 function writeJson(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+  const tmp = file + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+  fs.renameSync(tmp, file);   // краш посреди записи больше не убивает конфиг
 }
-// ---------- безопасное сохранение токена ----------
+const SAFE_ID = /^[A-Za-z0-9._-]+$/;
+const badId = (s) => typeof s !== "string" || !SAFE_ID.test(s) || s.includes("..");
 function saveAuth(data) {
-  if (!safeStorage.isEncryptionAvailable()) {
+  let buf;
+  if (safeStorage.isEncryptionAvailable()) {
+    buf = safeStorage.encryptString(JSON.stringify(data));
+  } else {
     console.warn("⚠️ Шифрование недоступно. Сохраняю в открытом виде.");
-    return writeJson(authFile, data);
+    buf = Buffer.from(JSON.stringify(data));
   }
-  const encrypted = safeStorage.encryptString(JSON.stringify(data));
-  fs.writeFileSync(authFile, encrypted);
+  fs.mkdirSync(path.dirname(authFile), { recursive: true });
+  fs.writeFileSync(authFile + ".tmp", buf);
+  fs.renameSync(authFile + ".tmp", authFile);
 }
 
 function loadAuth() {
@@ -107,13 +115,19 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(() => {
-  createWindow();
-  const updater = require("./updater");           // наверху файла
-updater.init({ send, log: console.log, isGameRunning: () => !!game });
-// статус в Discord: нужен Application ID в config.js (discordClientId), включается переключателем в настройках
-discord.init({ clientId: config.discordClientId, enabled: getSettings().discord !== false, brand: "Farcipal" });
-});
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.focus(); }
+  });
+  app.whenReady().then(() => {
+    createWindow();
+    const updater = require("./updater");
+    updater.init({ send, log: console.log, isGameRunning: () => !!game });
+    discord.init({ clientId: config.discordClientId, enabled: getSettings().discord !== false, brand: "Farcipal" });
+  });
+}
 app.on("before-quit", () => {
   appAbortController.abort(); 
   discord.destroy();
@@ -134,6 +148,9 @@ ipcMain.handle("config:get", () => ({
 ipcMain.handle("settings:get", () => getSettings());
 ipcMain.handle("settings:set", (_e, s) => {
   const next = { ...getSettings(), ...s };
+  next.memory = Math.max(1, Math.min(32, Number(next.memory) || 4));
+  const c = Number(next.concurrency);
+  next.concurrency = Number.isFinite(c) ? Math.max(0, Math.min(64, c)) : 4;
   writeJson(settingsFile, next);
   discord.setEnabled(next.discord !== false);
   return next;
@@ -232,6 +249,9 @@ modrinth.register(ipcMain, { gameDir, shell, send, signal: appAbortController.si
 ipcMain.handle("game:play", async (_e, opts) => {
   if (game) return { ok: false, error: "Игра уже запущена" };
   let { version, loaderType = "vanilla", loaderVersion = "", memory, mode, name, joinServer, concurrency = 4 } = opts;
+  if (badId(version)) return { ok: false, error: "Некорректная версия игры" };
+  if (loaderVersion && badId(loaderVersion)) return { ok: false, error: "Некорректная версия загрузчика" };
+  if (!["vanilla", "fabric", "forge"].includes(loaderType)) return { ok: false, error: "Неизвестный загрузчик" };
   memory = Math.max(1, Math.min(32, Number(memory) || 4));
 
   let auth;
@@ -286,14 +306,23 @@ ipcMain.handle("game:play", async (_e, opts) => {
   }
 });
 
+function killTree(proc) {
+  if (!proc || !proc.pid) return;
+  try {
+    if (process.platform === "win32") spawn("taskkill", ["/pid", String(proc.pid), "/T", "/F"], { windowsHide: true });
+    else proc.kill("SIGKILL");
+  } catch { try { proc.kill(); } catch {} }
+}
+
 ipcMain.handle("game:stop", () => {
   if (!game) return true;
-  game.cancel.cancelled = true; 
-  if (game.abortController) game.abortController.abort();                        // установка остановится на ближайшей границе этапа
-  try { if (game.cancel.task && game.cancel.task.cancel) game.cancel.task.cancel(); } catch {}   // и скачивание прервётся сразу
-  if (game.proc) game.proc.kill();
+  game.cancel.cancelled = true;
+  if (game.abortController) game.abortController.abort();
+  try { if (game.cancel.task && game.cancel.task.cancel) game.cancel.task.cancel(); } catch {}
+  killTree(game.proc);   // добиваем и дочернюю Java установщика Forge
   return true;
 });
+
 const NEWS_URL = "https://raw.githubusercontent.com/apomous/farcipal-launcher/main/news.json";
 
 ipcMain.handle("news:get", async () => {
@@ -311,76 +340,83 @@ ipcMain.handle("news:get", async () => {
   }
 });
 
+let tunnelSession = null;
+let tunnelBusy = false;   // синхронный замок: проверка ДО первого await
 
-
-let tunnelSession = null; // Храним текущую сессию (хост или гость)
-
-
- 
-// --- Хостинг (Создать комнату) ---
-ipcMain.handle('tunnel:host', async (event, playerName) => {
+ipcMain.handle('tunnel:host', async (_e, playerName) => {
+  if (tunnelSession || tunnelBusy) return { ok: false, error: 'Сессия уже запущена' };
+  tunnelBusy = true;
   try {
-    if (tunnelSession) throw new Error('Сессия уже запущена');
-     const binDir = getEasytierBinDir();
-    const host = await createHostInElectron(app, { 
-      playerName: playerName || 'Host',
-      easyTier: { binDir } 
+    const host = await createHostInElectron(app, {
+      playerName: String(playerName || 'Host').slice(0, 32),
+      easyTier: { binDir: getEasytierBinDir() }
     });
     tunnelSession = host;
     manageSessions(app, host);
-    
     send('tunnel:code', host.roomCode);
     host.on('player-join', (p) => send('tunnel:player-join', p.name));
     host.on('player-leave', (p) => send('tunnel:player-leave', p.name));
     host.on('error', (e) => send('tunnel:error', e.message));
-
     return { ok: true, roomCode: host.roomCode };
   } catch (e) {
     return { ok: false, error: e.message };
-  }
+  } finally { tunnelBusy = false; }
 });
 
-// --- Подключение (Присоединиться) ---
-ipcMain.handle('tunnel:join', async (event, roomCode, playerName) => {
+ipcMain.handle('tunnel:join', async (_e, roomCode, playerName) => {
+  if (tunnelSession || tunnelBusy) return { ok: false, error: 'Сессия уже запущена' };
+  tunnelBusy = true;
   try {
-    if (tunnelSession) throw new Error('Сессия уже запущена');
-    const binDir = getEasytierBinDir();
-    const guest = await createGuestInElectron(app, { 
-      roomCode,
-      playerName: playerName || 'Guest',
-      easyTier: { binDir } 
+    const guest = await createGuestInElectron(app, {
+      roomCode: String(roomCode || '').trim(),
+      playerName: String(playerName || 'Guest').slice(0, 32),
+      easyTier: { binDir: getEasytierBinDir() }
     });
     tunnelSession = guest;
     manageSessions(app, guest);
     return { ok: true, address: guest.address };
   } catch (e) {
     return { ok: false, error: e.message };
-  }
+  } finally { tunnelBusy = false; }
 });
+
 ipcMain.handle('tunnel:close', async () => {
-  if (tunnelSession) {
-    try {
-      await Promise.race([
-          tunnelSession.close(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Таймаут закрытия")), 3000))
-      ]);
-    } catch (e) {
-      console.error("Ошибка при закрытии сессии:", e);
-    }
-    tunnelSession = null;
-    send('tunnel:closed');
-  }
+  if (!tunnelSession) return { ok: true };
+  tunnelBusy = true;
+  const s = tunnelSession;
+  tunnelSession = null;
+  try {
+    await Promise.race([
+      s.close(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Таймаут закрытия")), 3000))
+    ]);
+  } catch (e) {
+    console.error("Ошибка при закрытии сессии:", e);
+  } finally { tunnelBusy = false; }
+  send('tunnel:closed');
   return { ok: true };
 });
+
 ipcMain.handle("modpack:export", (_e, { mc, loader }) => {
+  if (badId(mc) || !["vanilla", "fabric", "forge"].includes(loader)) throw new Error("Некорректный профиль");
   const manifest = modrinth.exportInstance(gameDir, mc, loader);
-  // Сжимаем JSON в Base64, чтобы строка была короткой
-  return zlib.deflateSync(JSON.stringify(manifest)).toString('base64');
+  return zlib.deflateSync(JSON.stringify(manifest)).toString("base64");
 });
 
 ipcMain.handle("modpack:import", async (_e, { mc, loader, code }) => {
   try {
-    const manifest = JSON.parse(zlib.inflateSync(Buffer.from(code, 'base64')).toString());
+    if (badId(mc) || !["vanilla", "fabric", "forge"].includes(loader)) throw new Error("Некорректный профиль");
+    if (typeof code !== "string" || code.length > 200000) throw new Error("Код сборки повреждён или слишком большой");
+    // maxOutputLength — защита от zip-бомбы из буфера обмена
+    const json = zlib.inflateSync(Buffer.from(code, "base64"), { maxOutputLength: 1000000 }).toString("utf8");
+    const manifest = JSON.parse(json);
+    if (!manifest || !Array.isArray(manifest.items) || manifest.items.length > 500) throw new Error("Некорректный манифест сборки");
+    for (const it of manifest.items) {
+      if (!it || !["mod", "resourcepack"].includes(it.kind) ||
+          typeof it.projectId !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(it.projectId)) {
+        throw new Error("Некорректный элемент сборки");
+      }
+    }
     await modrinth.importInstance(gameDir, mc, loader, manifest, (p) => {
       send("game:log", { text: `Скачивание сборки: ${p.task}/${p.total}` });
     }, appAbortController.signal);
@@ -389,3 +425,5 @@ ipcMain.handle("modpack:import", async (_e, { mc, loader, code }) => {
     return { ok: false, error: e.message };
   }
 });
+
+

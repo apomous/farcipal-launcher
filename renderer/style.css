@@ -91,7 +91,7 @@ body { font-family: var(--sans); color: var(--text); -webkit-font-smoothing: ant
   position: absolute; inset: 0; z-index: 1;
   display: grid; grid-template-columns: minmax(240px, 280px) 1fr minmax(240px, 300px);
   grid-template-rows: minmax(0, 1fr) 150px; gap: 18px; padding: 70px 26px 22px;
-  transition: all 0.4s ease;
+  transition: grid-template-columns 0.4s ease, grid-template-rows 0.4s ease;
 }
 .panel {
   background: rgba(14, 14, 22, .86); border: 1px solid var(--line); border-radius: 14px;
@@ -188,11 +188,15 @@ body { font-family: var(--sans); color: var(--text); -webkit-font-smoothing: ant
   transform-origin: 50% 100%;
   transition: transform .09s ease-out, box-shadow .25s, border-color .25s, background .25s;
 }
-.play .face::before {
-  content: ""; position: absolute; left: 10px; top: 10px; width: 6px; height: 6px;
-  background: var(--pc); opacity: .75;
-  box-shadow: 268px 0 0 var(--pc), 0 62px 0 var(--pc), 268px 62px 0 var(--pc);
+.play .face::before, .play .face::after {
+  content: ""; position: absolute; top: 10px; bottom: 10px; width: 6px; opacity: .75; pointer-events: none;
+  background:
+    linear-gradient(var(--pc), var(--pc)) top / 6px 6px no-repeat,
+    linear-gradient(var(--pc), var(--pc)) bottom / 6px 6px no-repeat;
 }
+.play .face::before { left: 10px; }
+.play .face::after { right: 10px; }
+
 .play:hover .face, .play:focus-visible .face {
   border-color: color-mix(in srgb, var(--pc) 70%, white);
   box-shadow:

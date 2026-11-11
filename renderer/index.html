@@ -210,6 +210,10 @@
         <p style="font-size: 12px; color: var(--muted); margin-bottom: 12px;">Чтобы другу не пришлось искать моды вручную, передайте ему код вашей сборки.</p>
         <button class="sc-btn" id="btnExportModpack" style="width: 100%; margin-bottom: 8px;">СКОПИРОВАТЬ СБОРКУ</button>
         <button class="sc-btn" id="btnImportModpack" style="width: 100%;">ЗАГРУЗИТЬ СБОРКУ</button>
+        <div id="importWrap" class="net-join-wrap hidden" style="margin-top: 8px; margin-bottom: 0;">
+  <input type="text" id="importCodeInput" placeholder="Код сборки" spellcheck="false" autocomplete="off">
+  <button class="net-btn-outline" id="btnImportGo">ОК</button>
+</div>
       </div>
     </div>
   </div>
@@ -426,6 +430,7 @@
 <script src="store.js"></script>
 <script src="update.js"></script>
 <script src="app.js"></script>
+
 
 
 </body>
