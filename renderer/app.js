@@ -326,9 +326,9 @@ if (bad || !game) log(text.slice(0, 200), bad ? "err" : "");
       const target = tab.dataset.target;
       document.body.dataset.mode = target;
       if (target === "network") {
-        // Добавили .net-btn-block, чтобы глаз видел главную кнопку
-        C.setTargets(".tab, .net-btn-block, .room-code-box, .players-list li");
-        C.setActionBtn($("btnCreateRoom"))
+        // Указываем ВСЕ элементы, за которые глаз должен цепляться на этой вкладке
+        C.setTargets(".tab, .net-box, .guide, .play-btn-small, .net-btn-outline, .room-code-box");
+        C.setActionBtn($("btnCreateRoom"));
       } else if (target === "play") {
         C.setTargets(".panel, .card, .play, .tab, .brand, .scard");
         C.setActionBtn($("play"));
@@ -336,7 +336,8 @@ if (bad || !game) log(text.slice(0, 200), bad ? "err" : "");
         C.setTargets(".panel, .card, .play, .tab, .brand, .scard");
         C.setActionBtn(null);
       }
-      if (uiState === "idle" || uiState === "error") C.phase("idle");   // будим глаз, но не сбрасываем загрузку
+      
+      if (uiState === "idle" || uiState === "error") C.phase("idle");
     });
   });
 

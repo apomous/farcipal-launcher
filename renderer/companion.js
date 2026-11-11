@@ -465,9 +465,9 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
             const T = home(); // Берет координаты угла из store.js
             spring(T.x + bob.x * 0.3, T.y + bob.y * 0.3, 15, 0.8, dt);
         } else if (mode === "network"){
-            col = COLORS.red;
-            const T = { x: W - 180, y: 150 }; 
-            spring(T.x + bob.x * 0.5, T.y + bob.y * 0.5, 15, 0.8, dt);
+            col = COLORS.amber;
+            const T = lastWant === "cap" ? { x: clamp(capPerch.x, R + 10, W - R - 10), y: clamp(capPerch.y, R + 60, H - R - 10) } : followTarget();
+            spring(T.x + bob.x * 0.6 + pullVec.x, T.y + bob.y * 0.6 + pullVec.y, 24, 0.75, dt);
             px = 0.8; py = 1.1; lid = 0.9;
           }
           
