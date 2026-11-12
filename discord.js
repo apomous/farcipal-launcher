@@ -121,7 +121,7 @@ function init(o) {
   if (enabled && cfg.showIdle) current = { type: 0, details: two("собираюсь"), assets: { large_image: cfg.largeImage }, timestamps: { start: Date.now() } };
 }
 function playing(info) { current = buildActivity(info); if (enabled) push(); }
-function clear() { current = enabled && cfg.showIdle ? { type: 0, details: two("В лаунчере"), state: two(cfg.brand), assets: { large_image: cfg.largeImage }, timestamps: { start: Date.now() } } : null; if (enabled) push(); }
+function clear() { current = enabled && cfg.showIdle ? { type: 0, details: two("В лаунчере"),  assets: { large_image: cfg.largeImage }, timestamps: { start: Date.now() } } : null; if (enabled) push(); }
 function setEnabled(v) {
   v = !!v && !!cfg.clientId;
   if (v === enabled) return;
