@@ -122,7 +122,9 @@
     // ---- плоть: чистое яйцо, чуть уже книзу (там корни), едва заметная неправильность
     const ph = [rnd(0, 6.28), rnd(0, 6.28)], mp = [], gl = [];
     for (let i = 0; i < 72; i++) {
-      const th = (i / 72) * Math.PI * 2, sn = Math.sin(th), r = 1 + 0.011 * Math.sin(2 * th + ph[0]) + 0.007 * Math.sin(3 * th + ph[1]);
+      const th = (i / 72) * Math.PI * 2, sn = Math.sin(th);
+      // лёгкая неправильность силуэта: только плавные волны, без локальных бугров
+      const r = 1 + 0.018 * Math.sin(2 * th + ph[0]) + 0.011 * Math.sin(3 * th + ph[1]);
       const p = { x: Math.cos(th) * 99 * r * (1 - 0.1 * Math.max(0, sn)), y: sn * 101 * r };
       mp.push(p);
       const deg = (th * 180) / Math.PI;
@@ -130,6 +132,7 @@
     }
     const massD = closedBlob(mp);
     ["massShape", "massTex", "massClipPath", "massEdge", "massRim"].forEach((id) => $(id).setAttribute("d", massD));
+    $("massRim").style.stroke = "var(--ec)"; $("massRim").setAttribute("stroke-opacity", ".1");   // тонкий отблеск тока, а не зелёная обводка
     $("massGloss").setAttribute("d", smoothPath(gl, true, 1, 0));
     const md = $("massDetail");
     for (let i = 0; i < 70; i++) {
@@ -138,47 +141,88 @@
     }
     const fg = mk(md, "g", { filter: "url(#blurS)" });
     ["M -86 -26 Q -60 -80 0 -86 Q 60 -80 86 -26", "M -80 28 Q -44 84 0 88 Q 44 84 80 28"].forEach((d) => {
-      mk(fg, "path", { d, fill: "none", stroke: "#000", "stroke-opacity": ".34", "stroke-width": "2", "stroke-linecap": "round" });
-      mk(fg, "path", { d, fill: "none", stroke: "#8a9896", "stroke-opacity": ".12", "stroke-width": "1.1", "stroke-linecap": "round", transform: "translate(1 1.6)" });
+      mk(fg, "path", { d, fill: "none", stroke: "#000", "stroke-opacity": ".18", "stroke-width": "2", "stroke-linecap": "round" });
+      mk(fg, "path", { d, fill: "none", stroke: "#8a9896", "stroke-opacity": ".06", "stroke-width": "1.1", "stroke-linecap": "round", transform: "translate(1 1.6)" });
     });
 
-    // ---- неоновые прожилки на плоти: дуги вокруг проёма, перемычки и «хвосты» к корням (как схема, но живая)
-    const dG = [], dP = ["", "", ""];
-    const addV = (pts, pulse) => { const d = smoothPath(pts, true, 1, 0); dG.push(d); if (pulse) dP[(Math.random() * 3) | 0] += d; };
-    const ell = (a0, a1, rx, ry, n, amp) => {
-      const o = [], ph2 = rnd(0, 6.28);
-      for (let i = 0; i < n; i++) { const t = (lerp(a0, a1, i / (n - 1)) * Math.PI) / 180, w = amp * Math.sin(i * 0.9 + ph2); o.push({ x: Math.cos(t) * (rx + w), y: 6 + Math.sin(t) * (ry + w) }); }
-      return o;
-    };
-    const bands = [[206, 334, [[84, 78], [88, 86], [91.5, 94]]], [28, 152, [[82, 71], [86.5, 80], [90, 90]]]];
-    bands.forEach(([a0, a1, arcs]) => {
-      const lines = arcs.map(([rx, ry], k) => { const pts = ell(a0 + k * 2, a1 - k * 2, rx, ry, 22, 1.4); addV(pts, k === 1); return pts; });
-      for (let k = 0; k < lines.length - 1; k++) {                        // перемычки между дугами
-        const cnt = 4 + ((Math.random() * 3) | 0);
-        for (let j = 0; j < cnt; j++) { const i = 2 + ((Math.random() * 17) | 0); addV([lines[k][i], lines[k + 1][Math.min(21, i + ((Math.random() * 3) | 0) - 1)]], false); }
-      }
-    });
-    // хвосты из углов проёма: вверх к краю и вниз к корням
-    [-1, 1].forEach((sd) => {
-      const c0 = { x: sd * 86, y: sd < 0 ? 9 : -2 };
-      addV(sampleC(c0, { x: sd * 94, y: c0.y - 12 }, { x: sd * 94, y: c0.y - 32 }, { x: sd * 82, y: -58 }, 14), true);
-      addV(sampleC(c0, { x: sd * 95, y: c0.y + 10 }, { x: sd * 92, y: c0.y + 30 }, { x: sd * 76, y: 62 }, 14), true);
-    });
-    // нижние дуги стекаются в корни
-    ROOT_TH.forEach((th) => {
-      const t0 = { x: Math.cos(th) * 88, y: 6 + Math.sin(th) * 86 }, t1 = { x: Math.cos(th) * 82, y: Math.sin(th) * 82 * 0.96 };
-      if (Math.sin(th) > 0.1) addV([t0, { x: (t0.x + t1.x) / 2 + rnd(-2, 2), y: (t0.y + t1.y) / 2 }, t1], true);
-    });
-    // короткие ответвления к кромке
-    for (let i = 0; i < 12; i++) {
-      const a = rnd(0, 6.28), p = { x: Math.cos(a) * 91, y: 6 + Math.sin(a) * 90 };
-      if (Math.abs(p.x) < 79 && p.y > -66 && p.y < 62) continue;
-      const l = rnd(5, 10); addV([p, { x: p.x + Math.cos(a + rnd(-0.5, 0.5)) * l, y: p.y + Math.sin(a + rnd(-0.5, 0.5)) * l * 0.9 }], false);
+  // ---- рельеф тела: надбровный валик, складки, морщины от уголков, шрам (свет слева сверху)
+  const cg = mk(md, "g", { filter: "url(#blurS)" });
+  const crease = (d, w, a) => {
+    mk(cg, "path", { d, fill: "none", stroke: "#000", "stroke-opacity": a, "stroke-width": w, "stroke-linecap": "round", transform: "translate(.7 1.3)" });
+    mk(cg, "path", { d, fill: "none", stroke: "#a9b7b4", "stroke-opacity": (a * 0.42).toFixed(2), "stroke-width": (w * 0.5).toFixed(2), "stroke-linecap": "round", transform: "translate(-.5 -.8)" });
+  };
+  // короткие складки кожи: идут поперёк века (как будто плоть собрана), а не вдоль него, концы сходят на нет
+  const fold = (p0, c, p2, w, a) => {
+    const pts = sampleQ(p0, c, p2, 10);
+    mk(cg, "path", { d: taper(pts, w, 0.2, 1, 0.7, 1.3), fill: "#000", opacity: a });
+    mk(cg, "path", { d: taper(pts, w * 0.45, 0.1, 1, -0.6, -0.9), fill: "#a9b7b4", opacity: (a * 0.4).toFixed(2) });
+  };
+  fold({ x: -74, y: -52 }, { x: -80, y: -66 }, { x: -70, y: -84 }, 3, 0.45);
+  fold({ x: 58, y: -60 }, { x: 66, y: -72 }, { x: 72, y: -86 }, 2.6, 0.4);
+  fold({ x: -30, y: -74 }, { x: -24, y: -84 }, { x: -34, y: -94 }, 2.2, 0.4);
+  fold({ x: -70, y: 44 }, { x: -80, y: 58 }, { x: -76, y: 74 }, 2.4, 0.4);
+  fold({ x: -48, y: 66 }, { x: -52, y: 78 }, { x: -40, y: 92 }, 2.6, 0.42);
+  fold({ x: 34, y: 66 }, { x: 44, y: 76 }, { x: 56, y: 86 }, 3, 0.45);
+  [[-80, 10, Math.PI], [80, -3, 0]].forEach(([cx, cy, a0]) => {       // морщины веером от уголков
+    for (let j = -2; j <= 2; j++) {
+      const a = a0 + j * 0.42 + rnd(-0.08, 0.08), l = rnd(6, 10);
+      const p = { x: cx + Math.cos(a) * 7, y: cy + Math.sin(a) * 7 }, q = { x: cx + Math.cos(a) * (7 + l), y: cy + Math.sin(a) * (7 + l) };
+      crease("M" + f1(p.x) + " " + f1(p.y) + " Q" + f1((p.x + q.x) / 2 + rnd(-2, 2)) + " " + f1((p.y + q.y) / 2 + rnd(-2, 2)) + " " + f1(q.x) + " " + f1(q.y), 1.2, 0.34);
     }
-    $("svGlow").setAttribute("d", dG.join("")); $("svCore").setAttribute("d", dG.join(""));
-    $("svArc").setAttribute("d", "M0 0");
-    svP = [$("svP0"), $("svP1"), $("svP2")];
-    svP.forEach((p, i) => p.setAttribute("d", dP[i] || "M0 0"));
+  });
+  crease("M 30 -92 Q 46 -80 41 -62", 2.6, 0.55);                      // шрам: сросшийся рубец
+  crease("M 36 -90 Q 50 -78 45 -64", 1, 0.3);
+
+  // ---- биология: сосуды как рельеф кожи, без неона (неон остаётся только в нитях)
+const DEG = Math.PI / 180;
+const E2 = (deg, r) => ({ x: Math.cos(deg * DEG) * r, y: 6 + Math.sin(deg * DEG) * r * 0.95 });
+const vs = [];
+const vessel = (p, ang, len, w, depth) => {
+  const n = 14, bend = rnd(-0.7, 0.7), ph = rnd(0, 6.28), pts = [p];
+  let q = p;
+  for (let i = 1; i < n; i++) {
+    const t = i / n, a = ang + bend * t + 0.32 * Math.sin(t * 5 + ph);
+    q = { x: q.x + Math.cos(a) * len / n, y: q.y + Math.sin(a) * len / n };
+    pts.push(q);
+  }
+  vs.push({ pts, w0: w, w1: w * 0.22 });
+  if (depth > 0) {
+    const nb = 1 + (Math.random() < 0.6 ? 1 : 0);
+    for (let b = 0; b < nb; b++) {
+      const k = 4 + ((Math.random() * 6) | 0);
+      const a = Math.atan2(pts[k + 1].y - pts[k - 1].y, pts[k + 1].x - pts[k - 1].x);
+      vessel(pts[k], a + (b ? -1 : 1) * rnd(0.5, 0.9), len * rnd(0.4, 0.6), w * 0.55, depth - 1);
+    }
+  }
+};
+// стволы растут от оснований корней; из верхних углов поднимаются вверх
+ROOT_TH.forEach((th, i) => {
+  const p = E2(th / DEG, 94), top = i === 0 || i === NRT - 1;
+  const ang = top ? (i ? -60 : -120) * DEG : Math.atan2(6 - p.y, -p.x) + rnd(-0.35, 0.35);
+  vessel(p, ang, top ? rnd(70, 90) : rnd(46, 62), 3.4, 2);
+});
+// корней сверху нет, поэтому три тонких сосуда с верхней кромки
+[-125, -90, -58].forEach((d) => { const p = E2(d, 94); vessel(p, Math.atan2(6 - p.y, -p.x) + rnd(-0.3, 0.3), rnd(26, 36), 2.4, 1); });
+
+// свет, просвечивающий сквозь кожу у оснований корней (там, где начинается ток)
+const defs = $("eyeMass").querySelector("defs"), rg = mk(defs, "radialGradient", { id: "subGlow" });
+mk(rg, "stop", { offset: "0", style: "stop-color:var(--ec)", "stop-opacity": ".12" });
+mk(rg, "stop", { offset: "1", style: "stop-color:var(--ec)", "stop-opacity": "0" });
+ROOT_TH.forEach((th) => { const p = E2(th / DEG, 92); mk(md, "circle", { cx: f1(p.x), cy: f1(p.y), r: "12", fill: "url(#subGlow)" }); });
+
+// рельеф: тень, тело сосуда, блик (как на сосудах белка, только тёмные)
+let vS = "", vB = "", vH = "";
+vs.forEach((v) => { vS += taper(v.pts, v.w0, v.w1, 1.6, 0.9, 1.4); vB += taper(v.pts, v.w0, v.w1, 1, 0, 0); vH += taper(v.pts, v.w0, v.w1, 0.3, -0.8, -1); });
+const bg = mk(md, "g", { filter: "url(#blurS)" });
+mk(bg, "path", { d: vS, fill: "#000", opacity: ".38" });
+mk(bg, "path", { d: vB, fill: "#0b1011", opacity: ".75" });                       // тело сосуда: тёмная основа
+mk(bg, "path", { d: vB, style: "fill:var(--ec)", opacity: ".3" });                // подкраска в цвет режима (зелёный / янтарный / красный)
+mk(bg, "path", { d: vH, style: "fill:var(--ec)", opacity: ".22" });               // блик по верхней кромке
+
+// неоновый слой на теле выключен (элементы в index.html остаются пустыми)
+["svGlow", "svCore", "svArc"].forEach((id) => $(id).setAttribute("d", "M0 0"));
+svP = [$("svP0"), $("svP1"), $("svP2")];
+svP.forEach((p) => p.setAttribute("d", "M0 0"));
 
     // ---- глазное яблоко: текстура с запасом, чтобы при повороте не было пустых мест
     const bl = $("ballBlotches");
@@ -504,7 +548,7 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
 
   // ---------- живая сеть: нити с жизненным циклом ----------
   // Thread: wait → grow (вырастает из глаза) → live (колышется, передаёт данные, ветвится) → cut (обрыв) → wait → ...
-  const NMAIN = 14, NPM = 18, NPC = 10, MAXKIDS = 10;
+  const NMAIN = 14, NPM = 18, NPC = 10, MAXKIDS = 6;
   const LEGS = [3, 4, 5, 6, 7];          // нити-«лапки»: цепляются за кнопку и за элементы под курсором
   const nz = (x) => (Math.sin(x) + 0.5 * Math.sin(2.13 * x + 1.7) + 0.25 * Math.sin(4.7 * x + 4.1)) / 1.75;
   const smooth01 = (t) => t * t * (3 - 2 * t);
@@ -566,7 +610,7 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
       this.growDur = quick ? 0.4 : rnd(0.9, 1.6);
       this.life = rnd(4.5, 9.5);
       this.off = rnd(-1.9, 1.9);
-      this.reach = rnd(95, 150);
+      this.reach = rnd(88, 130);
       this.L = (this.reach / (this.n - 1)) * rnd(0.9, 1.15);
     }
     spawnChild(parent, ri) {
@@ -662,15 +706,15 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
         let ax = 0, ay = grav;
         if (!(cutting && k > kb)) {
           if (!cutting) {
-            const sk = (asleep ? 10 : 46) * (0.15 + 0.85 * f) * (1 - att);
+            const sk = (asleep ? 10 : 62) * (0.15 + 0.85 * f) * (1 - att);
             ax += (rx + dx * k * Lb * breath - p.x) * sk; ay += (ry + dy * k * Lb * breath - p.y) * sk;
           }
           const a = pts[k - 1], b = pts[Math.min(gi, k + 1)];
           let nx = -(b.y - a.y), ny = b.x - a.x; const nd = Math.hypot(nx, ny) || 1; nx /= nd; ny /= nd;
-          const w = (asleep ? 60 : 420) * f * (1 - 0.8 * att) * this.sway * (nz(time * 1.5 + k * 0.52 + this.ph) + 0.6 * Math.sin(time * 2.9 + k * 0.9 + this.ph * 2));
+          const w = (asleep ? 60 : 250) * f * (1 - 0.8 * att) * this.sway * (nz(time * 1.5 + k * 0.52 + this.ph) + 0.6 * Math.sin(time * 2.9 + k * 0.9 + this.ph * 2));
           ax += nx * w; ay += ny * w;
         }
-        const vx = (p.x - p.px) * 0.94, vy = (p.y - p.py) * 0.94;
+        const vx = (p.x - p.px) * 0.92, vy = (p.y - p.py) * 0.92;
         p.px = p.x; p.py = p.y; p.x += vx + ax * dt2; p.y += vy + ay * dt2;
       }
       pts[0].x = pts[0].px = rx; pts[0].y = pts[0].py = ry;
@@ -842,26 +886,28 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
     const ctx = ctxW, sc = cur.sc, vis = cur.vis, fl = flash;
     ctx.lineCap = "round"; ctx.lineJoin = "round";
     for (const r of roots) {
-      const pts = r.pts, w0 = r.w0 * sc, wAt = (k) => w0 * Math.pow(1 - k / (NRP - 1), 0.85) + 2.2 * sc;
+      const pts = r.pts, w0 = r.w0 * sc, wAt = (k) => w0 * Math.pow(1 - k / (NRP - 1), 0.85) + 2.2 * sc + 8 * sc * Math.pow(Math.max(0, 1 - k / 2.5), 2);
       ctx.globalCompositeOperation = "source-over";
       for (let pass = 0; pass < 3; pass++) {
         for (let k = 0; k < NRP - 1; k++) {
           const a = pts[k], b = pts[k + 1], w = (wAt(k) + wAt(k + 1)) / 2, f = k / (NRP - 1);
           let ox = 0, oy = 0;
           if (pass === 0) { ctx.strokeStyle = `rgba(1,3,3,${0.92 * vis})`; ctx.lineWidth = w + 3; }
-          else if (pass === 1) { ctx.strokeStyle = `rgba(${lerp(54, 22, f) | 0},${lerp(62, 28, f) | 0},${lerp(63, 29, f) | 0},${vis})`; ctx.lineWidth = w; }
-          else { ctx.strokeStyle = `rgba(160,178,172,${0.22 * vis})`; ctx.lineWidth = w * 0.3; ox = -w * 0.2; oy = -w * 0.22; }
+          else if (pass === 1) { ctx.strokeStyle = `rgba(${lerp(36, 22, f) | 0},${lerp(42, 28, f) | 0},${lerp(43, 29, f) | 0},${vis})`; ctx.lineWidth = w; }
+          else { ctx.strokeStyle = `rgba(160,178,172,${(0.08 + 0.16 * f) * vis})`; ctx.lineWidth = w * 0.3; ox = -w * 0.2; oy = -w * 0.22; }
           ctx.beginPath(); ctx.moveTo(a.x + ox, a.y + oy); ctx.lineTo(b.x + ox, b.y + oy); ctx.stroke();
         }
       }
       // неоновая жила внутри корня и бегущая искра к кончику
       ctx.globalCompositeOperation = "lighter";
-      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
-      for (let k = 1; k < NRP; k++) ctx.lineTo(pts[k].x, pts[k].y);
-      ctx.strokeStyle = rgba(cur.col, 0.1 * vis); ctx.lineWidth = 3.4 * sc + 1; ctx.stroke();
-      ctx.strokeStyle = rgba(cur.col, (0.66 + fl * 0.3) * vis); ctx.lineWidth = 1.05; ctx.stroke();
+      for (let k = 0; k < NRP - 1; k++) {
+  const f = (k + 1) / (NRP - 1), a = (0.04 + 0.62 * Math.pow(f, 2.4) + fl * 0.3) * vis;
+  ctx.beginPath(); ctx.moveTo(pts[k].x, pts[k].y); ctx.lineTo(pts[k + 1].x, pts[k + 1].y);
+  ctx.strokeStyle = rgba(cur.col, a * 0.18); ctx.lineWidth = 3.2 * sc + 1; ctx.stroke();
+  ctx.strokeStyle = rgba(cur.col, a); ctx.lineWidth = 0.9; ctx.stroke();
+}
       const u = ((time * 0.55 + r.ph) % 1) * (NRP - 1), k0 = Math.min(NRP - 2, u | 0), uu = u - k0;
-      ctx.fillStyle = rgba([225, 255, 235], 0.85 * vis); ctx.beginPath(); ctx.arc(lerp(pts[k0].x, pts[k0 + 1].x, uu), lerp(pts[k0].y, pts[k0 + 1].y, uu), 1.6 + sc * 0.5, 0, 6.283); ctx.fill();
+      ctx.fillStyle = rgba([225, 255, 235], 0.55 * vis); ctx.beginPath(); ctx.arc(lerp(pts[k0].x, pts[k0 + 1].x, uu), lerp(pts[k0].y, pts[k0 + 1].y, uu), 1.6 + sc * 0.5, 0, 6.283); ctx.fill();
       // узел-«сокет» на кончике: отсюда растёт нить
       const t = pts[NRP - 1], bw = wAt(NRP - 1) + 2.6 * sc;
       ctx.globalCompositeOperation = "source-over";
@@ -951,7 +997,7 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
         t.branchT -= dt;
         if (t.branchT <= 0) {
           t.branchT = rnd(1.6, 4);
-          if (t.kids < 1 || (t.kids < 2 && Math.random() < 0.3)) { const k = kids.find((x) => x.state === "wait"); if (k) k.spawnChild(t, 4 + ((Math.random() * (t.n - 9)) | 0)); }
+          if (t.kids < 1 && Math.random() < 0.55) { const k = kids.find((x) => x.state === "wait"); if (k) k.spawnChild(t, 4 + ((Math.random() * (t.n - 9)) | 0)); }
         }
       }
     }
