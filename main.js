@@ -23,7 +23,10 @@ function getEasytierBinDir() {
     return path.join(__dirname, 'vendor', 'easytier');
   }
 }
-
+const EASYTIER_NODES = [
+  'tcp://public.easytier.cn:11010',
+  'udp://public.easytier.cn:11010'
+];
 
 const MANIFEST = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
 const gameDir = path.join(app.getPath("appData"), config.gameDirName);
@@ -347,10 +350,14 @@ ipcMain.handle('tunnel:host', async (_e, playerName) => {
   if (tunnelSession || tunnelBusy) return { ok: false, error: 'Сессия уже запущена' };
   tunnelBusy = true;
   try {
-    const host = await createHostInElectron(app, {
-      playerName: String(playerName || 'Host').slice(0, 32),
-      easyTier: { binDir: getEasytierBinDir() }
-    });
+     const host = await createHostInElectron(app, {
+  playerName: String(playerName || 'Host').slice(0, 32),
+  easyTier: {
+    binDir: getEasytierBinDir(),
+    publicNodes: EASYTIER_NODES,   // точка встречи: без неё узлы не найдут друг друга
+    p2pOnly: false                 // разрешаем relay — при двух Symmetric NAT это единственный путь
+  }
+});
     tunnelSession = host;
     manageSessions(app, host);
     send('tunnel:code', host.roomCode);
@@ -368,10 +375,14 @@ ipcMain.handle('tunnel:join', async (_e, roomCode, playerName) => {
   tunnelBusy = true;
   try {
     const guest = await createGuestInElectron(app, {
-      roomCode: String(roomCode || '').trim(),
-      playerName: String(playerName || 'Guest').slice(0, 32),
-      easyTier: { binDir: getEasytierBinDir() }
-    });
+  roomCode: String(roomCode || '').trim(),
+  playerName: String(playerName || 'Guest').slice(0, 32),
+  easyTier: {
+    binDir: getEasytierBinDir(),
+    publicNodes: EASYTIER_NODES,
+    p2pOnly: false
+  }
+});
     tunnelSession = guest;
     manageSessions(app, guest);
     return { ok: true, address: guest.address };
