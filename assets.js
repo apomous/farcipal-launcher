@@ -1,12 +1,12 @@
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto'); 
-const { fetch } = require('undici'); 
+const crypto = require('crypto');
+const { fetch } = require('undici');
 const { farcipalAgent } = require('./network');
 
 
 async function readBody(res, kind = "arrayBuffer", timeoutMs = 65000, signal) {
-    let timer;
+    let timer, onAbort;
     try {
         const bodyPromise = res[kind]();
         const timeoutPromise = new Promise((_, reject) => {
@@ -14,11 +14,16 @@ async function readBody(res, kind = "arrayBuffer", timeoutMs = 65000, signal) {
         });
         const signalPromise = signal ? new Promise((_, reject) => {
             if (signal.aborted) return reject(new Error("Отменено"));
-            signal.addEventListener("abort", () => reject(new Error("Отменено")), { once: true });
+            onAbort = () => reject(new Error("Отменено"));
+            signal.addEventListener("abort", onAbort, { once: true });
         }) : null;
         return await Promise.race(signalPromise ? [bodyPromise, timeoutPromise, signalPromise] : [bodyPromise, timeoutPromise]);
+    } catch (e) {
+        try { if (res.body) res.body.cancel(); } catch {}   // не докачиваем отменённое в фоне
+        throw e;
     } finally {
         clearTimeout(timer);
+        if (signal && onAbort) signal.removeEventListener("abort", onAbort);
     }
 }
 async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress, hooks, signal) {
@@ -32,14 +37,17 @@ async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress, hooks
     let completed = 0;
     let index = 0;
     let downloadedBytes = 0;
-    let consecutiveFailures = 0; 
-    const MAX_FAILURES = 30; 
+    let consecutiveFailures = 0;
+    const MAX_FAILURES = 30;
+    const failedAttempts = new Map();   // счётчик неудач на конкретный объект — без бесконечного requeue
     let isAborted = false;
     const totalBytes = objects.reduce((acc, obj) => acc + obj.size, 0);
-    
+
 
     async function worker() {
          while (index < objects.length && !isAborted) {
+            // если другой воркер уже упал фатально — выходим, не качаем дальше
+            if (isAborted) return;
             if (hooks && hooks.cancel && hooks.cancel.cancelled) {
               isAborted = true;
               throw new Error("Отменено");
@@ -61,14 +69,14 @@ async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress, hooks
                             fileHash.update(chunk);
                         }
                 if (fileHash.digest('hex') === hash) {
-                needsDownload = false; 
+                needsDownload = false;
             }
         } catch (err) {
                         // Если файл заблокирован (EBUSY) или нет прав — качаем заново
                         needsDownload = true;
         }
     }
-}                    
+}
 
 let success = !needsDownload;
 let retries = 0;
@@ -81,11 +89,12 @@ while (!success && retries < 10) {
         await fs.promises.writeFile(dest, Buffer.from(buffer));
         success = true;
     } catch (e) {
-        retries++;
-        if (hooks && hooks.cancel && hooks.cancel.cancelled) {
+        // отмена — не ретраим, выходим сразу (иначе висящий fetch съест всю паузу до checkCancel)
+        if ((hooks && hooks.cancel && hooks.cancel.cancelled) || e.cancelled || (signal && signal.aborted)) {
         isAborted = true;
         throw new Error("Отменено");
         }
+        retries++;
         await new Promise(r => setTimeout(r, 1000));
     }
 }
@@ -99,17 +108,28 @@ if (success) {
     }
 } else if (!isAborted) {
     consecutiveFailures++;
+    // лимит неудач на конкретный объект: не гоняем битый файл по кругу бесконечно
+    const objFails = (failedAttempts.get(hash) || 0) + 1;
+    failedAttempts.set(hash, objFails);
+    if (objFails >= 3) {
+        isAborted = true;   // фатально для этого объекта — останавливаем всех воркеров
+        throw new Error(`Не удалось скачать объект ассетов ${hash} после ${objFails} попыток.`);
+    }
     if (consecutiveFailures >= MAX_FAILURES) {
         isAborted = true;
         throw new Error(`[Сеть] Слишком много ошибок подряд (${MAX_FAILURES}). Похоже, интернет или VPN полностью отвалились.`);
     }
-    index--; 
+    index--;
    }
   }
 }
 
-const workers = Array.from({ length: concurrency }, () => worker());   
-await Promise.all(workers);          
+const workers = Array.from({ length: concurrency }, () => worker());
+await Promise.allSettled(workers).then((results) => {   // фатальная ошибка одного воркера останавливает всех
+  isAborted = true;                                      // после завершения цикла больше никто не качает
+  const failed = results.find((r) => r.status === "rejected");
+  if (failed) throw failed.reason;
+});
 }
 
 module.exports = { ensureAssets };

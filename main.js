@@ -23,10 +23,7 @@ function getEasytierBinDir() {
     return path.join(__dirname, 'vendor', 'easytier');
   }
 }
-const EASYTIER_NODES = [
-  'tcp://public.easytier.cn:11010',
-  'udp://public.easytier.cn:11010'
-];
+
 
 const MANIFEST = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
 const gameDir = path.join(app.getPath("appData"), config.gameDirName);
@@ -132,7 +129,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 app.on("before-quit", () => {
-  appAbortController.abort(); 
+  appAbortController.abort();
   discord.destroy();
 });
 app.on("window-all-closed", () => app.quit());
@@ -190,11 +187,14 @@ function describeToken(token) {
   return { name: p.name || "игрок", demo: !!p.demo };
 }
 
+// msmc: Auth(mode, clientId) — свой Azure client id из config.msClientId; пусто = стандартный client id msmc
+const msClientId = () => (config.msClientId && String(config.msClientId).trim()) || undefined;
+
 ipcMain.handle("auth:session", async () => {
   const saved = loadAuth();
   if (!saved) return null;
   try {
-    const authManager = new Auth("select_account");
+    const authManager = new Auth("select_account", msClientId());
     const xbox = await authManager.refresh(saved);
     mcToken = await xbox.getMinecraft();
     saveAuth(xbox.save());
@@ -205,7 +205,7 @@ ipcMain.handle("auth:session", async () => {
 });
 
 ipcMain.handle("auth:microsoft", async () => {
-  const authManager = new Auth("select_account");
+  const authManager = new Auth("select_account", msClientId());
   const xbox = await authManager.launch("electron");
   mcToken = await xbox.getMinecraft();
   saveAuth(xbox.save());
@@ -350,14 +350,10 @@ ipcMain.handle('tunnel:host', async (_e, playerName) => {
   if (tunnelSession || tunnelBusy) return { ok: false, error: 'Сессия уже запущена' };
   tunnelBusy = true;
   try {
-     const host = await createHostInElectron(app, {
-  playerName: String(playerName || 'Host').slice(0, 32),
-  easyTier: {
-    binDir: getEasytierBinDir(),
-    publicNodes: EASYTIER_NODES,   // точка встречи: без неё узлы не найдут друг друга
-    p2pOnly: false                 // разрешаем relay — при двух Symmetric NAT это единственный путь
-  }
-});
+    const host = await createHostInElectron(app, {
+      playerName: String(playerName || 'Host').slice(0, 32),
+      easyTier: { binDir: getEasytierBinDir() }
+    });
     tunnelSession = host;
     manageSessions(app, host);
     send('tunnel:code', host.roomCode);
@@ -375,14 +371,10 @@ ipcMain.handle('tunnel:join', async (_e, roomCode, playerName) => {
   tunnelBusy = true;
   try {
     const guest = await createGuestInElectron(app, {
-  roomCode: String(roomCode || '').trim(),
-  playerName: String(playerName || 'Guest').slice(0, 32),
-  easyTier: {
-    binDir: getEasytierBinDir(),
-    publicNodes: EASYTIER_NODES,
-    p2pOnly: false
-  }
-});
+      roomCode: String(roomCode || '').trim(),
+      playerName: String(playerName || 'Guest').slice(0, 32),
+      easyTier: { binDir: getEasytierBinDir() }
+    });
     tunnelSession = guest;
     manageSessions(app, guest);
     return { ok: true, address: guest.address };

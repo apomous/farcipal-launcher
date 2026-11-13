@@ -36,9 +36,9 @@ async function loadXmcl() {
    const instModule = await import("@xmcl/installer");
    console.log("Ключи instModule:", Object.keys(instModule));
    console.log("Ключи instModule.default:", Object.keys(instModule.default || {}));
-   return { 
-     core: { ...(coreModule.default || {}), ...coreModule }, 
-     inst: { ...(instModule.default || {}), ...instModule } 
+   return {
+     core: { ...(coreModule.default || {}), ...coreModule },
+     inst: { ...(instModule.default || {}), ...instModule }
  };
 }
 
@@ -137,34 +137,33 @@ async function installAndLaunch(opts, hooks, deps) {
 
     const ensureDeps = async (id, label) => {
     const resolved = await core.Version.parse(gameDir, id);
-    
+
     let attempt = 1;
     const maxRetries = 10; // 10 попыток — с головой хватит
-    
+
     while (attempt <= maxRetries) {
       try {
         await runTask(
-          inst.installLibrariesTask && inst.installLibrariesTask(resolved, { agent: farcipalAgent, concurrency: concurrency }), 
-          () => inst.installLibraries(resolved, { agent: farcipalAgent, concurrency: concurrency }), 
-          label, 
+          inst.installLibrariesTask && inst.installLibrariesTask(resolved, { agent: farcipalAgent, concurrency: concurrency }),
+          () => inst.installLibraries(resolved, { agent: farcipalAgent, concurrency: concurrency }),
+          label,
           hooks
         );
         break; // Если ошибок нет — выходим из цикла
       } catch (e) {
-        // Если пользователь сам нажал "Отмена" — не делаем ретраи
+        // Отмена («Остановить») или последняя попытка — не ретраим, а падаем наружу
+        if ((hooks.cancel && hooks.cancel.cancelled) || e.cancelled || attempt >= maxRetries) throw e;
         const delay = Math.min(3000 * 2 ** (attempt - 1), 15000);   // экспоненциальный backoff
         hooks.log(`[Сеть] Сбой скачивания (попытка ${attempt}/${maxRetries}). Пауза ${Math.round(delay / 1000)} с...`);
         await sleep(delay, signal);   // «Остановить» прерывает и паузу
         attempt++;
-        
-        
       }
     }
     return resolved;
-  
+
   };
 
-  
+
     // 1) базовая ванильная версия: качаем JSON и JAR руками, без @xmcl (чтобы не качал ассеты)
   hooks.state("loading");
   const vDir = path.join(gameDir, "versions", mcVersion);
@@ -178,7 +177,7 @@ async function installAndLaunch(opts, hooks, deps) {
     checkCancel(hooks);
     const meta = list.versions.find((v) => v.id === mcVersion);
     if (!meta) throw new Error(`Версия ${mcVersion} не найдена в манифесте Mojang`);
-    
+
     const res = await fetch(meta.url, { dispatcher: farcipalAgent, signal });
     if (!res.ok) throw new Error(`HTTP ${res.status} при скачивании JSON`);
     versionData = await readBody(res, "json", 65000, signal);
@@ -194,25 +193,25 @@ async function installAndLaunch(opts, hooks, deps) {
     const jarPath = path.join(vDir, `${mcVersion}.jar`);
     const expectedSha1 = versionData.downloads.client.sha1;
     const jarUrl = versionData.downloads.client.url;
-    
+
     let needsJarDownload = !exists(jarPath);
-    
+
     if (!needsJarDownload) {
       // Проверяем SHA1 существующего JAR
-      
+
       const { pipeline } = require('stream/promises');
       const fileHash = crypto.createHash('sha1');
       await pipeline(fs.createReadStream(jarPath), async function* (source) {
           for await (const chunk of source) fileHash.update(chunk);
       });
       const actualSha1 = fileHash.digest('hex');
-      
+
       if (actualSha1 !== expectedSha1) {
         hooks.log(`JAR повреждён (ожидался ${expectedSha1.slice(0, 8)}..., получен ${actualSha1.slice(0, 8)}...). Перекачиваю...`);
         needsJarDownload = true;
       }
     }
-    
+
        if (needsJarDownload) {
       hooks.log(`качаю client.jar для ${mcVersion}`);
       const jarRes = await fetch(jarUrl, { dispatcher: farcipalAgent, signal });
@@ -224,18 +223,18 @@ async function installAndLaunch(opts, hooks, deps) {
       fs.writeFileSync(jarPath + ".tmp", jarBuffer);
       fs.renameSync(jarPath + ".tmp", jarPath);
     }
-  } 
-      
-  
+  }
+
+
   // Парсим версию, чтобы достать ID индекса ассетов
   const parsedBase = await core.Version.parse(gameDir, mcVersion);
-  
+
   const assetIndex = parsedBase.assetIndex;
   if (assetIndex && assetIndex.url) {
     const indexDir = path.join(gameDir, "assets", "indexes");
     fs.mkdirSync(indexDir, { recursive: true });
     const indexPath = path.join(indexDir, `${assetIndex.id}.json`);
-    
+
     if (!fs.existsSync(indexPath)) {
       hooks.log(`качаю индекс ассетов ${assetIndex.id}...`);
       const indexRes = await fetch(assetIndex.url, { dispatcher: farcipalAgent, signal });
@@ -249,7 +248,7 @@ async function installAndLaunch(opts, hooks, deps) {
   const assetIndexId = (parsedBase.assetIndex && parsedBase.assetIndex.id) ? parsedBase.assetIndex.id : 'legacy';
   hooks.log(`Проверяю и докачиваю ассеты (индекс: ${assetIndexId})...`);
   await ensureAssets(gameDir, assetIndexId, concurrency, (p) => hooks.progress({ type: "файлы " + mcVersion, ...p }), hooks, signal);
-  
+
   // Теперь отдаем это @xmcl, он проверит за секунду и перейдет к библиотекам
   const base = await ensureDeps(mcVersion, "файлы " + mcVersion);
        // докачает недостающее и битое, лишнего не трогает
@@ -360,7 +359,7 @@ async function installAndLaunch(opts, hooks, deps) {
       if (hooks.cancel && hooks.cancel.cancelled) throw e;
       throw new Error(`Не удалось скачать Java ${need}: ${e.message}.`);
     }
-  }  
+  }
   // 3) загрузчик
   let versionId = mcVersion;
   if (loaderType === "fabric") {
@@ -404,14 +403,14 @@ async function installAndLaunch(opts, hooks, deps) {
      // ПРИНУДИТЕЛЬНО ИЗВЛЕКАЕМ НАТИВНЫЕ БИБЛИОТЕКИ
   hooks.log("Проверяю нативные библиотеки...");
   const { LaunchPrecheck, MinecraftFolder } = await import("@xmcl/core");
-  
+
   const resolvedVersion = await core.Version.parse(gameDir, versionId);
   const minecraftFolder = MinecraftFolder.from(gameDir);
-  
+
   // ЯВНО УКАЗЫВАЕМ, КУДА РАСПАКОВЫВАТЬ НАТИВЫ
   opt.nativeRoot = path.join(gameDir, "versions", versionId, versionId + "-natives");
   fs.mkdirSync(opt.nativeRoot, { recursive: true });
-  
+
   // Теперь checkNatives точно знает, куда распаковывать
   await LaunchPrecheck.checkNatives(minecraftFolder, resolvedVersion, opt);
     // Гарантируем, что Java увидит нативы
