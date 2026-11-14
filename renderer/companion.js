@@ -454,6 +454,10 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
     if (dt <= 0) return;
     dt = Math.min(dt, 0.033); time += dt;
     readRects(); scanHover(now); pickMode(now);
+    if (window.ASCII_BG) window.ASCII_BG.setScene(mode === "network" ? "link" : null);
+  
+
+    
 
     const bobK = reduced ? 0 : 1;
     const bob = { x: Math.sin(time * 0.9) * 6 * bobK, y: Math.cos(time * 1.3) * 9 * bobK };
@@ -1183,6 +1187,7 @@ const home = () => homeFn ? homeFn() : ({ x: W / 2, y: btnRect ? Math.max(130, b
       isHidden = !v;
       const layer = document.getElementById("eyeLayer");
       if (isHidden) {
+        if (window.ASCII_BG) window.ASCII_BG.setScene(null);
         if (layer) layer.style.display = "none";
         // Очищаем экран от паутины, чтобы она не зависла
         if (ctxW) ctxW.clearRect(0, 0, W, H);

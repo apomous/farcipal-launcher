@@ -410,6 +410,7 @@
         guestAddress.textContent = res.address;
         C.setTargets(".tab, .room-code-box");
         C.setActionBtn(guestAddress);   // глаз бьёт именно по адресу
+        if (window.ASCII_BG) ASCII_BG.setLinked(true);   // капли на фоне сливаются
         C.slam().then(() => C.phase("running"));
       } else {
         guestStatus.textContent = "Ошибка: " + res.error;
@@ -441,6 +442,7 @@
     btnCreateRoom.style.display = "";
     btnCreateRoom.disabled = false;
     C.phase("idle");
+    if (window.ASCII_BG) ASCII_BG.setLinked(false);
     applyCompanionTargets(document.body.dataset.mode || "play");   // не сбрасываем таргеты на play, если мы в «Вместе»
   };
 
@@ -458,10 +460,12 @@
     li.textContent = name;
     tunnelPlayersList.appendChild(li);
     playerItems.set(name, li);
+    if (window.ASCII_BG) ASCII_BG.setLinked(true);
   });
   L.on("tunnel:player-leave", (name) => {
     const li = playerItems.get(name);
     if (li) { li.remove(); playerItems.delete(name); }
+    if (!playerItems.size && window.ASCII_BG) ASCII_BG.setLinked(false);
   });
 
   // ---------- экспорт/импорт сборки ----------
