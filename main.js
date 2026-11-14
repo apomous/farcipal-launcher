@@ -23,7 +23,12 @@ function getEasytierBinDir() {
     return path.join(__dirname, 'vendor', 'easytier');
   }
 }
-
+// Живые публичные узлы EasyTier (точка встречи для комнат «Вместе»)
+const EASYTIER_NODES = [
+  'tcp://easytier.weiai.org.cn:11010',
+  'tcp://225284.xyz:11010',
+  'udp://us01.225284.xyz:11010'
+];
 
 const MANIFEST = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
 const gameDir = path.join(app.getPath("appData"), config.gameDirName);
@@ -351,9 +356,14 @@ ipcMain.handle('tunnel:host', async (_e, playerName) => {
   tunnelBusy = true;
   try {
     const host = await createHostInElectron(app, {
-      playerName: String(playerName || 'Host').slice(0, 32),
-      easyTier: { binDir: getEasytierBinDir() }
-    });
+  playerName: String(playerName || 'Host').slice(0, 32),
+  easyTier: {
+    binDir: getEasytierBinDir(),
+    publicNodes: EASYTIER_NODES,
+    p2pOnly: false
+  }
+});
+  
     tunnelSession = host;
     manageSessions(app, host);
     send('tunnel:code', host.roomCode);
@@ -371,10 +381,14 @@ ipcMain.handle('tunnel:join', async (_e, roomCode, playerName) => {
   tunnelBusy = true;
   try {
     const guest = await createGuestInElectron(app, {
-      roomCode: String(roomCode || '').trim(),
-      playerName: String(playerName || 'Guest').slice(0, 32),
-      easyTier: { binDir: getEasytierBinDir() }
-    });
+  roomCode: String(roomCode || '').trim(),
+  playerName: String(playerName || 'Guest').slice(0, 32),
+  easyTier: {
+    binDir: getEasytierBinDir(),
+    publicNodes: EASYTIER_NODES,
+    p2pOnly: false
+  }
+});
     tunnelSession = guest;
     manageSessions(app, guest);
     return { ok: true, address: guest.address };
