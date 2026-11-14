@@ -27,7 +27,7 @@ function getEasytierBinDir() {
 const EASYTIER_NODES = [
   'tcp://easytier.weiai.org.cn:11010',
   'tcp://225284.xyz:11010',
-  'udp://us01.225284.xyz:11010'
+  
 ];
 
 const MANIFEST = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
