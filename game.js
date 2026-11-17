@@ -3,6 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
+const platform = require("./platform");
 const loaders = require("./loaders");
 const { farcipalAgent } = require('./network');
 const { ensureAssets } = require('./assets');
@@ -259,7 +260,7 @@ async function installAndLaunch(opts, hooks, deps) {
 
   const runtimeDir = path.join(gameDir, "runtime");
   const javaDirFor = (major) => path.join(runtimeDir, "java-" + major);
-  const javaExeName = process.platform === "win32" ? "javaw.exe" : "java";
+  const javaExeName = platform.javaExeName;
   const javaFits = (v) => !!v && (need === 8 ? v === 8 : v >= need);
 
   // собираем ВСЕ кандидаты и проверяем версию, а не берём первый попавшийся javaw.exe
@@ -292,19 +293,29 @@ async function installAndLaunch(opts, hooks, deps) {
     const { spawn } = require("child_process");
     const sevenZip = require("7zip-bin");
     let sevenZipPath = sevenZip.path7za;
-    if (process.resourcesPath) {
-      const unpacked = path.join(process.resourcesPath, "app.asar.unpacked", "node_modules", "7zip-bin", "win", "x64", "7za.exe");
-      if (fs.existsSync(unpacked)) sevenZipPath = unpacked;
+    if (platform.isWin) {
+      if (process.resourcesPath) {
+        const unpacked = path.join(process.resourcesPath, "app.asar.unpacked", "node_modules", "7zip-bin", "win", "x64", "7za.exe");
+        if (fs.existsSync(unpacked)) sevenZipPath = unpacked;
+      }
+    } else {
+      // Linux: в собранном приложении бинарник лежит в app.asar.unpacked (запускать из asar нельзя)
+      sevenZipPath = sevenZipPath.replace("app.asar", "app.asar.unpacked");
+      try { fs.chmodSync(sevenZipPath, 0o755); } catch {}
     }
-    const run7z = (args) => new Promise((resolve, reject) => {
-      if (!fs.existsSync(sevenZipPath)) return reject(new Error("7za.exe не найден: " + sevenZipPath));
-      const child = spawn(sevenZipPath, args, { windowsHide: true });
+    // запуск внешней программы с отменой по signal (7za на Windows, tar на Linux)
+    const runCmd = (cmd, args) => new Promise((resolve, reject) => {
+      const child = spawn(cmd, args, { windowsHide: true });
       const onAbort = () => { try { child.kill(); } catch {} };
       if (signal) signal.addEventListener("abort", onAbort, { once: true });
       const done = (fn, arg) => { if (signal) signal.removeEventListener("abort", onAbort); fn(arg); };
-      child.on("close", (code) => code === 0 ? done(resolve) : done(reject, new Error(`7zip exited with code ${code}`)));
+      child.on("close", (code) => code === 0 ? done(resolve) : done(reject, new Error(`${path.basename(cmd)} exited with code ${code}`)));
       child.on("error", (e) => done(reject, e));
     });
+    const run7z = (args) => {
+      if (!fs.existsSync(sevenZipPath)) return Promise.reject(new Error("7za не найден: " + sevenZipPath));
+      return runCmd(sevenZipPath, args);
+    };
 
     try {
       if (need >= 21) {
@@ -312,7 +323,7 @@ async function installAndLaunch(opts, hooks, deps) {
         let downloadUrl = null;
         for (const imageType of ["jre", "jdk"]) {
           try {
-            const apiUrl = `https://api.adoptium.net/v3/assets/latest/${need}/hotspot?architecture=x64&image_type=${imageType}&os=windows`;
+            const apiUrl = `https://api.adoptium.net/v3/assets/latest/${need}/hotspot?architecture=${platform.adoptiumArch}&image_type=${imageType}&os=${platform.adoptiumOs}`;
             const apiRes = await fetch(apiUrl, { dispatcher: farcipalAgent, signal });
             if (!apiRes.ok) continue;
             const apiData = await readBody(apiRes, "json", 65000, signal);
@@ -320,18 +331,24 @@ async function installAndLaunch(opts, hooks, deps) {
             if (link) { downloadUrl = link; hooks.log(`Скачиваю Java ${need} (${imageType.toUpperCase()}) с Adoptium...`); break; }
           } catch (e) { hooks.log(`Adoptium API (${imageType}): ${e.message}`); }
         }
-        if (!downloadUrl) downloadUrl = `https://api.adoptium.net/v3/binary/latest/${need}/ga/windows/x64/jre/hotspot/normal/eclipse`;
+        if (!downloadUrl) downloadUrl = `https://api.adoptium.net/v3/binary/latest/${need}/ga/${platform.adoptiumOs}/${platform.adoptiumArch}/jre/hotspot/normal/eclipse`;
 
         hooks.log(`Скачивание Java ${need} может занять несколько минут, не закрывай лаунчер...`);
         const zipRes = await fetch(downloadUrl, { dispatcher: farcipalAgent, signal });
         if (!zipRes.ok) throw new Error(`HTTP ${zipRes.status} при скачивании архива`);
         const zipBuffer = await readBody(zipRes, "arrayBuffer", 600000, signal);
 
-        const zipPath = path.join(gameDir, "cache", `java-${need}.zip`);
+        const zipPath = path.join(gameDir, "cache", `java-${need}.${platform.javaArchiveExt}`);
         fs.mkdirSync(path.dirname(zipPath), { recursive: true });
         fs.writeFileSync(zipPath, Buffer.from(zipBuffer));
         checkCancel(hooks);
-        await run7z(["x", zipPath, `-o${javaRuntimeDir}`, "-y"]);
+        if (platform.isWin) {
+          await run7z(["x", zipPath, `-o${javaRuntimeDir}`, "-y"]);
+        } else {
+          // Linux: Adoptium отдаёт tar.gz; системный tar сохраняет права на запуск у bin/java
+          fs.mkdirSync(javaRuntimeDir, { recursive: true });
+          await runCmd("tar", ["-xzf", zipPath, "-C", javaRuntimeDir]);
+        }
       } else {
         // Java 8/17 — JRE с серверов Mojang
         const unpackLZMA = async (src, dest) => {

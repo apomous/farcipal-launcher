@@ -41,18 +41,19 @@ async function ensureAssets(gameDir, indexId, concurrency = 4, onProgress, hooks
     const MAX_FAILURES = 30;
     const failedAttempts = new Map();   // счётчик неудач на конкретный объект — без бесконечного requeue
     let isAborted = false;
+    const retryQueue = [];   // упавшие объекты ждут здесь повторной попытки (общий index для этого не годится)
     const totalBytes = objects.reduce((acc, obj) => acc + obj.size, 0);
 
 
     async function worker() {
-         while (index < objects.length && !isAborted) {
+         while ((index < objects.length || retryQueue.length) && !isAborted) {
             // если другой воркер уже упал фатально — выходим, не качаем дальше
             if (isAborted) return;
             if (hooks && hooks.cancel && hooks.cancel.cancelled) {
               isAborted = true;
               throw new Error("Отменено");
             }
-            const obj = objects[index++];
+            const obj = retryQueue.length ? retryQueue.shift() : objects[index++];
             const hash = obj.hash;
             const prefix = hash.substring(0, 2);
             const dest = path.join(outputDir, prefix, hash);
@@ -119,7 +120,7 @@ if (success) {
         isAborted = true;
         throw new Error(`[Сеть] Слишком много ошибок подряд (${MAX_FAILURES}). Похоже, интернет или VPN полностью отвалились.`);
     }
-    index--;
+    retryQueue.push(obj);
    }
   }
 }

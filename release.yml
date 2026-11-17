@@ -1,0 +1,62 @@
+name: Release
+
+# Сборка установщика при пуше тега v*: git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write            # нужно, чтобы электрон-билдер создал релиз и загрузил файлы
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10         # поставь свою мажорную версию pnpm (pnpm -v)
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: node scripts/fix-xmcl.js
+
+      # Собирает Farcipal_Setup_<версия>.exe, latest.yml и .blockmap и кладёт их в ЧЕРНОВИК релиза.
+      # Проверь файлы и нажми Publish, только после этого друзья получат обновление.
+      - run: pnpm exec electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  linux:
+    runs-on: ubuntu-latest
+    needs: windows           # после Windows, чтобы оба job не создали по отдельному черновику одного релиза
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10         # та же версия pnpm, что и в job windows
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Инструменты для сборки rpm
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: node scripts/fix-xmcl.js
+
+      # Собирает AppImage, rpm, deb и latest-linux.yml и добавляет их в тот же ЧЕРНОВИК релиза.
+      # latest-linux.yml нужен автообновлению на Linux.
+      - run: pnpm exec electron-builder --linux --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, shell, safeStorage } = require("electron");
 const path = require("path");
+const os = require("os");
 const fs = require("fs");
 const crypto = require("crypto");
 const { Auth } = require("msmc");
@@ -31,7 +32,10 @@ const EASYTIER_NODES = [
 ];
 
 const MANIFEST = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
-const gameDir = path.join(app.getPath("appData"), config.gameDirName);
+// Windows: %APPDATA%\<имя>, как и раньше. Linux: ~/<имя> (а не ~/.config/<имя>)
+const gameDir = process.platform === "win32"
+  ? path.join(app.getPath("appData"), config.gameDirName)
+  : path.join(os.homedir(), config.gameDirName);
 const settingsFile = path.join(app.getPath("userData"), "settings.json");
 const authFile = path.join(app.getPath("userData"), "auth.json");
 const launchLog = path.join(gameDir, "launcher-last.log");   // полный журнал последнего запуска: его можно прислать при проблемах

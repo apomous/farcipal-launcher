@@ -19,7 +19,8 @@ function init({ send, log = () => {}, isGameRunning = () => false, intervalMs = 
 
   const { autoUpdater } = require("electron-updater");
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;              // не нажал кнопку: поставится при закрытии
+  // Windows и AppImage ставят тихо; deb/rpm просят пароль администратора, поэтому при закрытии лаунчера их не трогаем
+  autoUpdater.autoInstallOnAppQuit = process.platform === "win32" || !!process.env.APPIMAGE;   // не нажал кнопку: поставится при закрытии
   autoUpdater.allowPrerelease = allowPrerelease;        // пока релизы помечаешь «Pre-release», друзья их тоже видят
   autoUpdater.logger = { info: (m) => log("updater: " + m), warn: (m) => log("updater: " + m), error: (m) => log("updater: " + m), debug() {} };
 

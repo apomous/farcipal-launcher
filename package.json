@@ -8,7 +8,9 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win nsis",
+    "dist:linux": "electron-builder --linux",
     "release": "electron-builder --win --publish always",
+    "release:linux": "electron-builder --linux --publish always",
     "postinstall": "node scripts/fix-xmcl.js"
   },
   "dependencies": {
@@ -62,6 +64,17 @@
         }
       ],
       "icon": "build/icon.ico"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "rpm",
+        "deb"
+      ],
+      "category": "Game",
+      "maintainer": "apomous <apomous@users.noreply.github.com>",
+      "synopsis": "Minecraft launcher",
+      "executableName": "farcipal"
     },
     "nsis": {
       "artifactName": "Farcipal_Setup_${version}.exe",
