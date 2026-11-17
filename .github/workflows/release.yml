@@ -48,15 +48,12 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Инструменты для сборки rpm
-        run: sudo apt-get update && sudo apt-get install -y rpm
-
       - run: pnpm install --frozen-lockfile
 
       - run: node scripts/fix-xmcl.js
 
-      # Собирает AppImage, rpm, deb и latest-linux.yml и добавляет их в тот же ЧЕРНОВИК релиза.
-      # latest-linux.yml нужен автообновлению на Linux.
-      - run: pnpm exec electron-builder --linux --publish always
+      # AppImage + deb и latest-linux.yml (нужен автообновлению) в тот же ЧЕРНОВИК релиза.
+      # rpm здесь не собираем: на ubuntu-runner rpmbuild падает; rpm можно собрать локально на Fedora (pnpm dist:linux).
+      - run: pnpm exec electron-builder --linux AppImage deb --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
